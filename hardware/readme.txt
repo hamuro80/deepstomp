@@ -1,0 +1,1 @@
+This folder will contain the shematic diagram of the deepstomp board, still working on it, please wait for the update.
