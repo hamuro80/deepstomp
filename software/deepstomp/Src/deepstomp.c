@@ -63,8 +63,8 @@
 
 //define your module data structure
 MODULETYPE module;
-//set up your module inside configure function
-int deepstomp_configure()
+//set up your module
+int deepstomp_modulesetup()
 {
 	int setupstatus = MODULESETUP(&module);
 	MAINMODULE = (dsthandle) &module;

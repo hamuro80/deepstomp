@@ -163,9 +163,9 @@ dsthandle MAINMODULE;
 //default preset for multi-effect mode, should be defined in multi-effect module
 __weak int8_t const DEFAULTPRESET[20][10][4];
 
-// configuration function, should be defined in deepstomp.c
+// module setup function, should be defined in deepstomp.c
 // this function will be called by main core first before loading any parameters
-__weak int deepstomp_configure();
+__weak int deepstomp_modulesetup();
 
 // processing function, should be defined in deepstomp.c
 // this function will be called by main core at every audio sample reading

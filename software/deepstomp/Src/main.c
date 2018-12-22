@@ -83,56 +83,32 @@
 #include "dstlib_leveldetector.h"
 #include "dstlib_dcremover.h"
 
+//ENUMERATED CONSTANTS
 enum {dsdisplaytype_bar, dsdisplaytype_dot, dsdisplaytype_blinkdot};
 enum {editexit_expired,editexit_click,editexit_longpress};
 
-/*
-#define LED_INDI_1_Pin GPIO_PIN_13
-#define LED_INDI_1_GPIO_Port GPIOC
-#define LED_INDI_0_Pin GPIO_PIN_14
-#define LED_INDI_0_GPIO_Port GPIOC
-#define LED_INDI_5_Pin GPIO_PIN_15
-#define LED_INDI_5_GPIO_Port GPIOC
-//#define ROT_SW_Pin GPIO_PIN_11
+//ERROR BLINK CODES
+#define ERR_TOO_MANY_CAL_TRIALS	2
+#define ERR_TOO_LOW_RESISTOR	3
+#define ERR_TOO_HIGH_RESISTOR	4
+#define ERR_STORAGE_ALLOCATION	5
+#define ERR_MODULE_SETUP		6
+
+//PWM
+#define LO_PWM_Pin GPIO_PIN_3
+#define LO_PWM_GPIO_Port GPIOB
+#define HI_PWM_Pin GPIO_PIN_6
+#define HI_PWM_GPIO_Port GPIOB
+
+//ROTARY
 #define ROT_SW_Pin GPIO_PIN_1
 #define ROT_SW_GPIO_Port GPIOB
 #define ROT_PH_0_Pin GPIO_PIN_10
 #define ROT_PH_0_GPIO_Port GPIOB
-//#define ROT_PH_1_Pin GPIO_PIN_1
 #define ROT_PH_1_Pin GPIO_PIN_11
 #define ROT_PH_1_GPIO_Port GPIOB
-#define LED_BAR_9_Pin GPIO_PIN_12
-#define LED_BAR_9_GPIO_Port GPIOB
-#define LED_BAR_8_Pin GPIO_PIN_13
-#define LED_BAR_8_GPIO_Port GPIOB
-#define LED_BAR_7_Pin GPIO_PIN_14
-#define LED_BAR_7_GPIO_Port GPIOB
-#define LED_BAR_6_Pin GPIO_PIN_15
-#define LED_BAR_6_GPIO_Port GPIOB
-#define LED_BAR_5_Pin GPIO_PIN_8
-#define LED_BAR_5_GPIO_Port GPIOA
-#define LED_BAR_4_Pin GPIO_PIN_11
-#define LED_BAR_4_GPIO_Port GPIOA
-#define LED_BAR_3_Pin GPIO_PIN_12
-#define LED_BAR_3_GPIO_Port GPIOA
-#define LED_BAR_2_Pin GPIO_PIN_15
-#define LED_BAR_2_GPIO_Port GPIOA
-#define LO_PWM_Pin GPIO_PIN_3
-#define LO_PWM_GPIO_Port GPIOB
-#define LED_BAR_1_Pin GPIO_PIN_4
-#define LED_BAR_1_GPIO_Port GPIOB
-#define LED_BAR_0_Pin GPIO_PIN_5
-#define LED_BAR_0_GPIO_Port GPIOB
-#define HI_PWM_Pin GPIO_PIN_6
-#define HI_PWM_GPIO_Port GPIOB
-#define LED_INDI_2_Pin GPIO_PIN_7
-#define LED_INDI_2_GPIO_Port GPIOB
-#define LED_INDI_3_Pin GPIO_PIN_8
-#define LED_INDI_3_GPIO_Port GPIOB
-#define LED_INDI_4_Pin GPIO_PIN_9
-#define LED_INDI_4_GPIO_Port GPIOB
-*/
-//PARAMS
+
+//PARAMS LED
 #define LED_INDI_0_Pin GPIO_PIN_7
 #define LED_INDI_0_GPIO_Port GPIOB
 #define LED_INDI_1_Pin GPIO_PIN_15
@@ -146,16 +122,7 @@ enum {editexit_expired,editexit_click,editexit_longpress};
 #define LED_INDI_5_Pin GPIO_PIN_15
 #define LED_INDI_5_GPIO_Port GPIOA
 
-//ROTARY
-#define ROT_SW_Pin GPIO_PIN_1
-#define ROT_SW_GPIO_Port GPIOB
-#define ROT_PH_0_Pin GPIO_PIN_10
-#define ROT_PH_0_GPIO_Port GPIOB
-#define ROT_PH_1_Pin GPIO_PIN_11
-#define ROT_PH_1_GPIO_Port GPIOB
-
 //LED BAR
-
 #define LED_BAR_0_Pin GPIO_PIN_15
 #define LED_BAR_0_GPIO_Port GPIOC
 #define LED_BAR_1_Pin GPIO_PIN_14
@@ -177,11 +144,6 @@ enum {editexit_expired,editexit_click,editexit_longpress};
 #define LED_BAR_9_Pin GPIO_PIN_13
 #define LED_BAR_9_GPIO_Port GPIOB
 
-//PWM
-#define LO_PWM_Pin GPIO_PIN_3
-#define LO_PWM_GPIO_Port GPIOB
-#define HI_PWM_Pin GPIO_PIN_6
-#define HI_PWM_GPIO_Port GPIOB
 
 typedef struct
 {
@@ -321,12 +283,18 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 static void errorhalt(int blinkcount);
+static void errorblink(int blinkcount);
 static uint16_t generatecalsignal();
+static void runcalibrationdisplay();
 
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
 
+static void runcalibrationdisplay()
+{
+
+}
 
 void loadfromstorage()
 {
@@ -443,16 +411,62 @@ static void errorhalt(int blinkcount)
 		HAL_GPIO_WritePin((GPIO_TypeDef*)ledbarport[i],ledbarpin[i],0);
 	}
 
-	//blink forever
+	//long 2 seconds fast blinks first
+	for(int i=0;i<20;i++)
+	{
+		HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[0],ledindipin[0],1);
+		HAL_Delay(50);
+		HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[0],ledindipin[0],0);
+		HAL_Delay(50);
+	}
+
+	//period
+	HAL_Delay(1000);
+
+	//then blink forever
 	while(1)
 	{
 		for(int i=0;i<blinkcount;i++)
 		{
 			HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[0],ledindipin[0],1);
-			HAL_Delay(200);
+			HAL_Delay(250);
 			HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[0],ledindipin[0],0);
-			HAL_Delay(200);
+			HAL_Delay(250);
 		}
+		HAL_Delay(500);
+	}
+}
+
+static void errorblink(int blinkcount)
+{
+	//turn off all LEDs
+	for(int i=0;i<6;i++)
+	{
+		HAL_GPIO_WritePin((GPIO_TypeDef*)ledbarport[i],ledindipin[i],0);
+	}
+	for(int i=0; i<10; i++)
+	{
+		HAL_GPIO_WritePin((GPIO_TypeDef*)ledbarport[i],ledbarpin[i],0);
+	}
+
+	//long 2 seconds fast blinks first
+	for(int i=0;i<20;i++)
+	{
+		HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[0],ledindipin[0],1);
+		HAL_Delay(50);
+		HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[0],ledindipin[0],0);
+		HAL_Delay(50);
+	}
+
+	//period
+	HAL_Delay(1000);
+
+	//then blinks the error code
+	for(int i=0;i<blinkcount;i++)
+	{
+		HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[0],ledindipin[0],1);
+		HAL_Delay(500);
+		HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[0],ledindipin[0],0);
 		HAL_Delay(500);
 	}
 }
@@ -689,8 +703,13 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		 {
 			 temp += adcbuffer[i];
 		 }
-		 //convert dc to ac signal
-		 insample = (temp<<1)-32768;
+
+		 //record the sum of both single and multi-channel
+		 onechannelsum += (((uint32_t)adcbuffer[8]) << 3);
+		 allchannelsum += temp;
+
+		 //run calibration display
+		 runcalibrationdisplay();
 
 		 //write calibration signal to the output
 		 temp = (int32_t) generatecalsignal();
@@ -698,7 +717,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		 TIM2->CCR2 = 0xff & temp;
 		 cpucount = TIM1->CNT;
 	 }
-	 else
+	 else	//normal mode
 	 {
 		 int32_t temp=0;
 		 for(int i=8; i<16;i++)
@@ -706,7 +725,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 			 temp += adcbuffer[i];
 		 }
 		 //convert dc to ac signal
-		 insample = (temp<<1)-32768;
+		 insample = (temp<<1)-32767;
 
 		 //preprocessing the audio sample
 		 q15_t nodcsignal;
@@ -723,7 +742,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		 deepstomp_process(&noaliasing,&outsample);
 
 		 //write the sample to the output
-		 temp = (int32_t) outsample + 32768; //convert outsample to dc signal
+		 temp = (int32_t) outsample + 32767; //convert outsample to dc signal
 		 TIM4->CCR1 = (0xff00 & temp)>>8;
 		 TIM2->CCR2 = 0xff & temp;
 		 cpucount = TIM1->CNT;
@@ -742,8 +761,13 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 		 {
 			 temp += adcbuffer[i];
 		 }
-		 //convert dc to ac signal
-		 insample = (temp<<1)-32768;
+
+		 //record the sum of both single and multi-channel
+		 onechannelsum += (((uint32_t)adcbuffer[0]) << 3);
+		 allchannelsum += temp;
+
+		 //run calibration display
+		 runcalibrationdisplay();
 
 		 //write calibration signal to the output
 		 temp = (int32_t) generatecalsignal();
@@ -759,7 +783,7 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 			 temp += adcbuffer[i];
 		 }
 		 //convert dc to ac signal
-		 insample = (temp<<1)-32768;
+		 insample = (temp<<1)-32767;
 
 		 //pre-processing the audio sample
 
@@ -777,7 +801,7 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 		 deepstomp_process(&noaliasing,&outsample);
 
 		 //write the sample to the output
-		 temp = (int32_t) outsample + 32768;	//convert outsample to dc signal
+		 temp = (int32_t) outsample + 32767;	//convert outsample to dc signal
 		 TIM4->CCR1 = (0xff00 & temp)>>8;
 		 TIM2->CCR2 = 0xff & temp;
 		 cpucount = TIM1->CNT;
@@ -906,6 +930,8 @@ void calibratepwm()
 		while(1)
 		{
 			  calibcount++;
+			  if(calibcount>50)
+				  break;
 			  TIM4->CCR1 = 1;
 			  TIM2->CCR2 = 0;
 			  HAL_Delay(1);
@@ -943,23 +969,6 @@ void calibratepwm()
 			  else if(lostep < (histep-1))
 				  TIM2->ARR = TIM2->ARR-1;
 			  else break;
-
-			  /*
-			  //forever loop led 1 and led 2 error indicator if calibration value is out of range
-			  if(TIM2->ARR > 350)
-			  {
-				  HAL_GPIO_WritePin(LED_INDI_0_GPIO_Port,LED_INDI_0_Pin,1);
-				  HAL_GPIO_WritePin(LED_INDI_1_GPIO_Port,LED_INDI_1_Pin,1);
-				  while(1)
-				  {
-					  HAL_GPIO_TogglePin(LED_INDI_0_GPIO_Port,LED_INDI_0_Pin);
-					  HAL_GPIO_TogglePin(LED_INDI_1_GPIO_Port,LED_INDI_1_Pin);
-					  HAL_Delay(500);
-				  }
-			  }
-			  */
-			  if(calibcount>100)
-				  break;
 		}
 }
 
@@ -1543,36 +1552,51 @@ int main(void)
 	HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim4,TIM_CHANNEL_1);
 
+
+	/*
+	 * //uncomment to test all params LEDs and bar LEDs
 	while(1)
 	{
 		for(int i=0;i<5;i++)
 		{
-			HAL_GPIO_WritePin(ledindiport[0],ledindipin[0],1);
+			HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[0],ledindipin[0],1);
 			HAL_Delay(100);
-			HAL_GPIO_WritePin(ledindiport[0],ledindipin[0],0);
+			HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[0],ledindipin[0],0);
 			HAL_Delay(100);
 
 		}
 
 		for(int i=0;i<6;i++)
 		{
-			HAL_GPIO_WritePin(ledindiport[i],ledindipin[i],1);
+			HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[i],ledindipin[i],1);
 			HAL_Delay(500);
-			HAL_GPIO_WritePin(ledindiport[i],ledindipin[i],0);
+			HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[i],ledindipin[i],0);
 		}
 		for(int i=0;i<10;i++)
 		{
-			HAL_GPIO_WritePin(ledbarport[i],ledbarpin[i],1);
+			HAL_GPIO_WritePin((GPIO_TypeDef*)ledbarport[i],ledbarpin[i],1);
 			HAL_Delay(500);
-			HAL_GPIO_WritePin(ledbarport[i],ledbarpin[i],0);
+			HAL_GPIO_WritePin((GPIO_TypeDef*)ledbarport[i],ledbarpin[i],0);
 		}
 	}
 
+*/
+
 	//Auto calibrate 16-bit PWM DAC
 	calibratepwm();
+	 //error blink: too long calibration trial
+	  if(calibcount>100)
+		  errorblink(ERR_TOO_MANY_CAL_TRIALS);
+	//error blink: too low resistor value
+	  if(TIM2->ARR < 257)
+		  errorblink(ERR_TOO_LOW_RESISTOR);
+	  //error blink: too high resistor value
+	  if(TIM2->ARR > 350)
+		  errorblink(ERR_TOO_HIGH_RESISTOR);
 
 	//start timer 1: cpu cycle counter
 	HAL_TIM_Base_Start(&htim1);
+
 	//START AUDIO ADC
 	TIM3->ARR = 1632;	//44.1kHz sampling rate
 	HAL_TIM_Base_Start(&htim3);
@@ -1584,21 +1608,22 @@ int main(void)
 	paramdump.value = 0;
 	paramdump.displaytype = displaytype_bar10;
 
-	// run module's configuration
-	if(deepstomp_configure()!=setup_ok)
-	{
-		errorhalt(1);	//module configuration error
-	}
-
 	//allocate storage buffer
 	storagebuffer =(storagestruct*)malloc(1024);
 	if(storagebuffer==NULL)
-		errorhalt(2);		//unable to allocate storage buffer
+		errorhalt(ERR_STORAGE_ALLOCATION);
+
+	// run module's setup
+	if(deepstomp_modulesetup()!=setup_ok)
+	{
+		errorhalt(ERR_MODULE_SETUP);
+	}
 
 	//load params and preset data from flash memory storage
 	loadfromstorage();
 
-	if(((dstinterface*)MAINMODULE)->multimode)
+	//configure the core's user interface
+	if(((dstinterface*)MAINMODULE)->multimode)	//if a multi-effect mode
 	{
 		dstmultimodule* h= (dstmultimodule*) MAINMODULE;
 
@@ -1681,24 +1706,34 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  while (1)
-  {
+	if(CALIBRATIONMODE)
+	{
+		while(1)
+		{
+			//do nothing, all routine will handled by interrupt service routine
+		}
+	}
+	else
+	{
+	  while (1)
+	  {
 
-	#ifdef USEDEBUGMONITOR
-		  displaydebuginfo();
-	#endif
-		  menu();
-		  animatebar();
-		  rotscan();
-		  rotencode();
-		  indiblink();
-		  runstoragewrite();
+		#ifdef USEDEBUGMONITOR
+			  displaydebuginfo();
+		#endif
+			  menu();
+			  animatebar();
+			  rotscan();
+			  rotencode();
+			  indiblink();
+			  runstoragewrite();
 
-  /* USER CODE END WHILE */
+	  /* USER CODE END WHILE */
 
-  /* USER CODE BEGIN 3 */
+	  /* USER CODE BEGIN 3 */
 
-  }
+	  }
+	}
   /* USER CODE END 3 */
 
 }
