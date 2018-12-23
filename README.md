@@ -14,12 +14,11 @@ LICENSE
 	this distrbution that has a limiting license that prevent anyone to use it
 	in non open-source project/product by contacting me at my email:
 	hamuro at vidisonic dot com.
-- Our Deepstomp's hardware design (Deepstomp's main board circuit) can be used
+- The Deepstomp's hardware design (Deepstomp's main board circuit) can be used
 	in any commercial or open-source product, with or without modification.
-	As long as it can run the standadrd open-source software distributed in
-	this software package then you can claim it as a Deepstomp hardware, so
-	there would be no "original" or "clone" product can be claimed.
-	
+	Everyone is allowed to produce Deepstomp hardware, and as long as it
+	can run the standadrd open-source software distributed in this 
+	software package then it can be claimed as an "original" Deepstomp hardware.
 
 HARDWARE FEATURES
 - Pluggable Blue-Pill-Compatible CPU/Core board: ARM Cortex M3,
