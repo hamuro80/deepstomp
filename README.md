@@ -1,5 +1,8 @@
 # deepstomp
 
+AUTHOR: HAMURO
+COPYRIGHT(c) 2018 DEEPTRONIC.COM
+
 INTRODUCTION
 - Deepstomp is a DIY digital multi-effect stompbox/pedal processor platform
 based on stm32f1 core. The platform consist of software package and hardware 
