@@ -1,4 +1,4 @@
-Deepstomp's main board schematic board is shown in the deepstomp-main-board-schematic.png. This schematic diagram has no component reference yet, you can assign the reference as you design the PCB yourself.
+Deepstomp's main board schematic board is shown in the deepstomp-main-board-schematic.png. This schematic diagram has no component reference yet, so you can assign the references yourself when designing your own PCB.
 
 The standard features of this main bord is:
 - Power supply input: 9V DC (negative at the outer circle/tube and ground at the center)
@@ -11,9 +11,9 @@ The standard features of this main bord is:
 - One rotary encoder with a click-push-button for user interface
 - One input level potentiometer to ensure optimal input conversion
 - One output level potentiometer to ensure the balance between processed output and bypassed input volume.
-- One 40 pins female header socket for plugging you deepstomp CPU board
+- One 40 pins female header socket for plugging the deepstomp CPU board
 
 
 CPU Board
-The CPU board is a blue-pill compatible board, as shown in the deepstomp-cpu-board-stm32f1-blue-pill.png file. The STLINK port and the USB port are not used, so you can omit them if you design your own custom Deepstomp CPU board.
+The CPU board is a blue-pill compatible board, as shown in the deepstomp-cpu-board-stm32f1-blue-pill.png file. The STLINK port and the USB port are not used, so you can omit them in your own custom Deepstomp CPU board design.
 

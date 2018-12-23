@@ -47,7 +47,7 @@ CORE FUNCTION IN PROGRESS
 CORE FUNCTION FUTURE OWRKS
 - Guitar tunner
 
-IMPELEMNTED EFFECT MODULES
+IMPLEMENTED EFFECT MODULES
 - Expansor, an integrated noise gate expander and compressor 
 	with syncronized gate-on level, gate-off level, compression-start,
 	compression-stop, and compression factor, compression attack,
