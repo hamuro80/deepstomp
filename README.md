@@ -1,10 +1,25 @@
 # deepstomp
 
 INTRODUCTION
-Deepstomp is a DIY digital multi-effect stompbox/pedal processor platform
+- Deepstomp is a DIY digital multi-effect stompbox/pedal processor platform
 based on stm32f1 core. The platform consist of software package and hardware 
 circuit design wich enable easy development of single- or multi-effect 
 stompbox/pedal using the very low cost deepstomp's hardware platform.
+
+LICENSE
+- Each source code files has its own license in its copyright notice
+	which we believe that they has the most flexible open-source licensing,
+	that allow anyone to use them for their proprietary commercial product 
+	or open-source products. Please let me know if there's any file in 
+	this distrbution that has a limiting license that prevent anyone to use it
+	in non open-source project/product by contacting me at my email:
+	hamuro at vidisonic dot com.
+- Our Deepstomp's hardware design (Deepstomp's main board circuit) can be used
+	in any commercial or open-source product, with or without modification.
+	As long as it can run the standadrd open-source software distributed in
+	this software package then you can claim it as a Deepstomp hardware, so
+	there would be no "original" or "clone" product can be claimed.
+	
 
 HARDWARE FEATURES
 - Pluggable Blue-Pill-Compatible CPU/Core board: ARM Cortex M3,
