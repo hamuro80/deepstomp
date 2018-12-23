@@ -53,8 +53,7 @@ CURRENTLY IMPLEMENTED CORE FUNCTION
 - Audio input-output
 - Parameter control and preset management for single- and multi-effect modes
 - Automatic calibration for 16-bit PWM output
-- Serial debugging display with 6-elements integer variable array to display and 
-	two signal probes to display any processed signals
+- Serial debugging display to monitor some internal parameters and signal probes
 
 CORE FUNCTION IN PROGRESS
 - Manual ADC calibration operation mode
