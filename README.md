@@ -25,7 +25,7 @@ LICENSE
 
 HARDWARE FEATURES
 - Pluggable Blue-Pill-Compatible CPU/Core board: ARM Cortex M3,
-74MHz clock speed, 1 MB RAM, 64KB flash eprom
+72MHz clock speed, 1 MB RAM, 64KB flash eprom
 - mono input and output
 - 44.1 kHz sampling rate
 - 16-bit output using cascaded double 8-bit PWM with auto-calibration 
