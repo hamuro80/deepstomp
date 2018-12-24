@@ -133,7 +133,7 @@ enum {editexit_expired,editexit_click,editexit_longpress};
 #define LED_BAR_3_GPIO_Port GPIOB
 #define LED_BAR_4_Pin GPIO_PIN_8
 #define LED_BAR_4_GPIO_Port GPIOB
-#define LED_BAR_5_Pin GPIO_PIN_3
+#define LED_BAR_5_Pin GPIO_PIN_5
 #define LED_BAR_5_GPIO_Port GPIOB
 #define LED_BAR_6_Pin GPIO_PIN_11
 #define LED_BAR_6_GPIO_Port GPIOA
@@ -1554,7 +1554,9 @@ int main(void)
 
 
 	/*
-	 * //uncomment to test all params LEDs and bar LEDs
+	 * //Uncomment to test all PARAMS LEDs and BAR LEDs
+	 * #######################################################################
+	//begin LED test
 	while(1)
 	{
 		for(int i=0;i<5;i++)
@@ -1579,8 +1581,8 @@ int main(void)
 			HAL_GPIO_WritePin((GPIO_TypeDef*)ledbarport[i],ledbarpin[i],0);
 		}
 	}
-
-*/
+	//end LED test
+	*/
 
 	//Auto calibrate 16-bit PWM DAC
 	calibratepwm();
