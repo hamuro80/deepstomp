@@ -85,7 +85,9 @@
 
 //ENUMERATED CONSTANTS
 enum {dsdisplaytype_bar, dsdisplaytype_dot, dsdisplaytype_blinkdot};
-enum {editexit_expired,editexit_click,editexit_longpress};
+enum {editexit_expired,editexit_click,editexit_longpress,
+	editexit_storepresetexpired,editexit_storepresetclick,
+	editexit_storepresetlongpress};
 
 //ERROR BLINK CODES
 #define ERR_TOO_MANY_CAL_TRIALS	2
@@ -1245,7 +1247,7 @@ void on_editexit()
 		dstmultimodule* hmm = (dstmultimodule*) MAINMODULE;
 		preset* presetptr = (preset*) storagebuffer->presetbuffer;
 
-		if((EDITEXITSTATUS == editexit_longpress) && (paramindex < 4))
+		if((EDITEXITSTATUS == editexit_storepresetclick) && (paramindex == 5))
 		{
 			for(int i=0; i< hmm->module.stepcount; i++)
 			{
@@ -1265,9 +1267,8 @@ void on_editexit()
 
 		//if long press on preset selector then reset the selected preset to default
 		//then reset all module's controls with the default
-		if((EDITEXITSTATUS == editexit_longpress) && (paramindex == 5))
+		if((EDITEXITSTATUS == editexit_storepresetlongpress) && (paramindex == 5))
 		{
-			int8_t currentpreset = PARAMS[5]->value;
 			for(int i=0; i< hmm->module.stepcount; i++)
 			{
 				dstsinglemodule* hsm = (dstsinglemodule*) hmm->modulehandles[i];
@@ -1276,9 +1277,9 @@ void on_editexit()
 				{
 					if(p>3)
 						break;
-					presetptr->preset[currentpreset].module[i].control[p] =
-							DEFAULTPRESET[currentpreset][i][p];
-					hsm->params[p].onchange((dsthandle) hsm, DEFAULTPRESET[currentpreset][i][p]);
+					presetptr->preset[presettostore].module[i].control[p] =
+							DEFAULTPRESET[presettostore][i][p];
+					hsm->params[p].onchange((dsthandle) hsm, DEFAULTPRESET[presettostore][i][p]);
 				}
 			}
 			dowrite=1;
@@ -1325,7 +1326,7 @@ void menu()
 	else if(menustate==menustate_rotateparamselect)
 	{
 		indishowselect(paramindex);
-		if((rotateexit == rotateexit_click)||(rotateexit == rotateexit_longpress))
+		if(rotateexit == rotateexit_click)
 		{
 			rotatedindex = &(PARAMS[paramindex]->value);
 			rotatedindexmax= PARAMS[paramindex]->stepcount-1;
@@ -1349,6 +1350,35 @@ void menu()
 			indishowedit(paramindex);
 			on_editenter();
 		}
+		if(rotateexit == rotateexit_longpress)
+		{
+			dstmultimodule * mm = (dstmultimodule *) MAINMODULE;
+			if(mm->interface.multimode)	//multi-effect mode
+			{
+				if(paramindex == 5) //the preset selector
+				{
+					menustate= menustate_selectpresettostore;
+					presettostore = PARAMS[5]->value;
+					rotatedindex = &presettostore;
+					ROTATE_CALLBACK = NULL;
+					rotatedindexmax = 18;
+					rotate_editparam = 1;
+					rotateexit = rotateexit_notyet;
+					rotencode_state = rotencode_startrun;
+					bardisplaychannel = barchannel_presettostore;
+					indishowbutton();
+				}
+				else //not the preset selector then long press = cancel
+				{
+					menustate=menustate_start;
+				}
+
+			}
+			else	//single-effect mode then long press = cancel
+			{
+				menustate=menustate_start;
+			}
+		}
 		else if(rotateexit == rotateexit_expired)
 		{
 			menustate=menustate_start;
@@ -1370,52 +1400,28 @@ void menu()
 		}
 		else if(rotateexit == rotateexit_longpress)
 		{
-			if(((dstinterface*)MAINMODULE)->multimode)
-			{
-				if(paramindex < 5)	//not the preset selector
-				{
-					menustate= menustate_selectpresettostore;
-					presettostore = PARAMS[5]->value;
-					rotatedindex = &presettostore;
-					ROTATE_CALLBACK = NULL;
-					rotatedindexmax = 18;
-					rotateexit = rotateexit_notyet;
-					rotencode_state = rotencode_startrun;
-					bardisplaychannel = barchannel_presettostore;
-					indishowbutton();
-				}
-				else
-				{
-					EDITEXITSTATUS = editexit_longpress;
-					on_editexit();
-					menustate=menustate_start;
-				}
-			}
-			else	//single effect mode
-			{
-				EDITEXITSTATUS = editexit_longpress;
-				on_editexit();
-				menustate=menustate_start;
-			}
+			EDITEXITSTATUS = editexit_longpress;
+			on_editexit();
+			menustate=menustate_start;
 		}
 	}
 	else if(menustate==menustate_selectpresettostore)
 	{
 		if(rotateexit == rotateexit_expired)
 		{
-			EDITEXITSTATUS = editexit_expired;
+			EDITEXITSTATUS = editexit_storepresetexpired;
 			on_editexit();
 			menustate=menustate_start;
 		}
 		else if(rotateexit == rotateexit_click)
 		{
-			EDITEXITSTATUS = editexit_click;
+			EDITEXITSTATUS = editexit_storepresetclick;
 			on_editexit();
 			menustate=menustate_start;
 		}
 		else if(rotateexit == rotateexit_longpress)
 		{
-			EDITEXITSTATUS = editexit_longpress;
+			EDITEXITSTATUS = editexit_storepresetlongpress;
 			on_editexit();
 			menustate=menustate_start;
 		}
@@ -1657,7 +1663,6 @@ int main(void)
 			}
 		}
 
-
 		//module and preset control setup
 		h->module.onchange = multieffectmodulechange;
 		h->preset.onchange = multieffectpresetchange;
@@ -1666,37 +1671,50 @@ int main(void)
 		//set the active module and preset from the last saved states
 		int preset = storagebuffer->params[5];
 		int module = storagebuffer->params[4];
-		if(preset < 0) preset = 0;
-		if(module < 0) module = 0;
-		h->module.onchange((dsthandle)h,module);
-		h->preset.value = preset;	//set the preset without actually setting up any modules
-
-		//load the module with the last active setting (preset[19]) which could have
-		//the same or different  values with the last selected preset
-		for(int i=0; i< h->module.stepcount; i++)
+		if(storagecounter < 1)
 		{
-			dstsinglemodule* hsm = (dstsinglemodule*) h->modulehandles[i];
-			//load all parameter from the presetbuffer
-			for(int p = 0; p <hsm->interface.paramcount; p++)
+			preset = 0;
+			module = 0;
+		}
+		h->module.onchange((dsthandle)h,module);
+
+		//if not the first use (after flash erase on the first firmware upload)
+		if(storagecounter > 0)
+		{
+			h->preset.value = preset;	//set the preset without actually setting up any modules
+			//load the module with the last active setting (preset[19]) which could have
+			//the same or different  values with the last selected preset
+			for(int i=0; i< h->module.stepcount; i++)
 			{
-				if(p>3)
-					break;
-				int8_t data = PRESETBUFFER->preset[19].module[i].control[p];
-				hsm->params[p].onchange((dsthandle)hsm,data);
+				dstsinglemodule* hsm = (dstsinglemodule*) h->modulehandles[i];
+				//load all parameter from the presetbuffer
+				for(int p = 0; p <hsm->interface.paramcount; p++)
+				{
+					if(p>3)
+						break;
+					int8_t data = PRESETBUFFER->preset[19].module[i].control[p];
+					hsm->params[p].onchange((dsthandle)hsm,data);
+				}
 			}
+		}
+		else
+		{
+			h->preset.onchange((dsthandle)h,preset);
 		}
 	}
 	else	//single effect mode
 	{
 		dstsinglemodule* h = (dstsinglemodule*) MAINMODULE;
 		int8_t* paramptr = storagebuffer->params;
+
 		for(int p=0; p<6 ; p++)
 		{
 			if(p < h->interface.paramcount)
 			{
 				PARAMS[p] = &(h->params[p]);
-				//load the param with the last saved value from storage if set
-				if(paramptr[p] < 0 )
+				//if not the first run (flash erase on firmware upload)
+				//then load the param with the last saved value from storage
+				if(storagecounter > 0)
 					PARAMS[p]->onchange((dsthandle)h,paramptr[p]);
 			}
 			else PARAMS[p] = &paramdump;
@@ -1719,8 +1737,8 @@ int main(void)
 	{
 	  while (1)
 	  {
-
 		#ifdef USEDEBUGMONITOR
+		  DEBUGVARS[0]=presettostore;
 			  displaydebuginfo();
 		#endif
 			  menu();

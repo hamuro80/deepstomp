@@ -43,15 +43,15 @@
 #define MODULETYPE expansor
 #define MODULESETUP expansor_setup
 // END_CONFIG
-*/
+ */
 
 /*
 // BEGIN_CONFIG
 #include "deepstomp_distortion.h"
-#define EFFECTMODULETYPE distortion
-#define EFFECTMODULESETUP distortion_setup
+#define MODULETYPE distortion
+#define MODULESETUP distortion_setup
 // END_CONFIG
-*/
+ */
 
 /*
 // BEGIN_CONFIG
