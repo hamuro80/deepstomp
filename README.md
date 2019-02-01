@@ -10,18 +10,18 @@ circuit design wich enable easy development of single- or multi-effect
 stompbox/pedal using the very low cost deepstomp's hardware platform.
 
 LICENSE
-- Each source code files has its own license in its copyright notice
-	which we believe that they has the most flexible open-source licensing,
-	that allow anyone to use them for their proprietary commercial product 
-	or open-source products. Please let me know if there's any file in 
-	this distrbution that has a limiting license that prevent anyone to use it
-	in non open-source project/product by contacting me at my email:
-	hamuro at vidisonic dot com.
+- Each source code files in the software package has its own license 
+	in its copyright notice at the top of the source code, which we believe 
+	that they has the most flexible open-source licensing, that allow everyone
+	to use them for their proprietary commercial product, 
+	not limiting only for open-source products. Please let me know 
+	if there's any file in this distrbution that has a limiting license 
+	that prevent anyone to use it in non open-source project/product 
+	by contacting me at my email: hamuro at vidisonic dot com.
 - The Deepstomp's hardware design (Deepstomp's main board circuit) can be used
 	in any commercial or open-source product, with or without modification.
-	Everyone is allowed to produce Deepstomp hardware, and as long as it
-	can run the standadrd open-source software distributed in this 
-	software package then it can be claimed as an "original" Deepstomp hardware.
+	Everyone is allowed to produce Deepstomp hardware under their own brand
+	or trademark.
 
 HARDWARE FEATURES
 - Pluggable Blue-Pill-Compatible CPU/Core board: ARM Cortex M3,
