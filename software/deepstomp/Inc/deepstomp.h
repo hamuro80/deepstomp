@@ -47,7 +47,7 @@
 // enable or disable USELEVELPROBE by uncommenting or
 // commenting the preprocessor
 
-#define USEDEBUGMONITOR
+//#define USEDEBUGMONITOR
 //#define USELEVELPROBE
 
 // define monitored variables for debugging

@@ -166,6 +166,9 @@ int delay_setup(delay* handle)
 	handle->delaybuffer = malloc(sizeof(q15_t) * handle->bufferlength);
 	if(handle->delaybuffer)
 	{
+		//initialize the buffer to zero
+		for(int i=0;i<handle->bufferlength;i++)
+			handle->delaybuffer[i]=0;
 		handle->delay.onchange((dsthandle)handle,18);
 		handle->downsamplingstate = 0;
 		handle->delaylineout = 0;

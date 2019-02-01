@@ -105,10 +105,11 @@ enum {editexit_expired,editexit_click,editexit_longpress,
 //ROTARY
 #define ROT_SW_Pin GPIO_PIN_1
 #define ROT_SW_GPIO_Port GPIOB
-#define ROT_PH_0_Pin GPIO_PIN_10
-#define ROT_PH_0_GPIO_Port GPIOB
-#define ROT_PH_1_Pin GPIO_PIN_11
+
+#define ROT_PH_1_Pin GPIO_PIN_10
 #define ROT_PH_1_GPIO_Port GPIOB
+#define ROT_PH_0_Pin GPIO_PIN_11
+#define ROT_PH_0_GPIO_Port GPIOB
 
 //PARAMS LED
 #define LED_INDI_0_Pin GPIO_PIN_7
@@ -145,7 +146,6 @@ enum {editexit_expired,editexit_click,editexit_longpress,
 #define LED_BAR_8_GPIO_Port GPIOB
 #define LED_BAR_9_Pin GPIO_PIN_13
 #define LED_BAR_9_GPIO_Port GPIOB
-
 
 typedef struct
 {
