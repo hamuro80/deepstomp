@@ -73,6 +73,14 @@ IMPLEMENTED EFFECT MODULES
 - Delay, featured with time, feedback, and balance control
 
 CHANGE NOTES
+Version 1.2
+- Added manual ADC calibration operation when device is switched on while the rotary switch is pressed and hold
+- Added CPU overload detection and indication to prevent user interface hanging up and friendly debugging.
+	The overload is	indicated by the blinking of the first 3-LEDs in the LED bar in the 
+	normal operation (where it should normally show the signal level)
+- Compiler preprocessor for debug monitor has been changed to 
+	USE_DEBUG_MONITOR and USE_LEVEL_MONITOR variables for easier setup and 
+	implemented with dynamic memory allocation for saving RAM space
 Version 1.1
   - Modified hardware schematic, fully tested
 Version 1.0

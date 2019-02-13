@@ -10,7 +10,7 @@
   * inserted by the user or by software development tools
   * are owned by their respective copyright owners.
   *
-  * COPYRIGHT(c) 2018 STMicroelectronics
+  * COPYRIGHT(c) 2019 STMicroelectronics
   *
   * Redistribution and use in source and binary forms, with or without modification,
   * are permitted provided that the following conditions are met:
@@ -84,10 +84,15 @@
 #include "dstlib_dcremover.h"
 
 //ENUMERATED CONSTANTS
-enum {dsdisplaytype_bar, dsdisplaytype_dot, dsdisplaytype_blinkdot};
+enum {dsdisplaytype_bar, dsdisplaytype_dot, dsdisplaytype_blinkdot,dsdisplaytype_blinkbar};
 enum {editexit_expired,editexit_click,editexit_longpress,
 	editexit_storepresetexpired,editexit_storepresetclick,
 	editexit_storepresetlongpress};
+
+//maximum CPU clock count for sample to sample acquisition
+#define MAXCPUCOUNT	1632
+//maximum CPU clock count for single sample processing to indicate CPU overload
+#define MAXPROCESSINGCOUNT	1450
 
 //ERROR BLINK CODES
 #define ERR_TOO_MANY_CAL_TRIALS	2
@@ -95,6 +100,7 @@ enum {editexit_expired,editexit_click,editexit_longpress,
 #define ERR_TOO_HIGH_RESISTOR	4
 #define ERR_STORAGE_ALLOCATION	5
 #define ERR_MODULE_SETUP		6
+#define ERR_DEBUGMON_INIT		7
 
 //PWM
 #define LO_PWM_Pin GPIO_PIN_3
@@ -171,6 +177,29 @@ typedef struct
 	modulearray preset[19];
 } preset;
 
+typedef struct
+{
+	char txbuff[533];
+	char rxbuff[40];
+	int rxbuffindex;
+	int rxbuffsize;
+	unsigned char rxchar;
+	char* display;
+	char* debugtext;
+	int displaysize;
+	char linebuffer[51];
+	volatile uint8_t serialtxcomplete;
+	int debugvars[4];
+
+	q15_t levelprobes[2];
+	q15_t levelout[2];
+	dst_leveldetector_handle levelprobe1;
+	dst_leveldetector_handle levelprobe2;
+
+	uint32_t displaydebug_prevtick;
+	uint32_t displaydebug_currtick;
+
+} debugmonitor;
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -188,30 +217,25 @@ DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-//serial display tx/rx variables
+//Debug monitor
+debugmonitor* dmon;
 
-#ifdef USEDEBUGMONITOR
-	char txbuff[533];
-	char rxbuff[40];
-	int rxbuffindex = 0;
-	int rxbuffsize = 40;
-	unsigned char rxchar;
-	char* display;
-	int displaysize = 530;
-	char linebuffer[51];
-	volatile uint8_t serialtxcomplete = 1;
-#ifdef USELEVELPROBE
-	dst_leveldetector_handle levelprobe1;
-	dst_leveldetector_handle levelprobe2;
-	q15_t levelp1 = 0;
-	q15_t levelp2 = 0;
-#endif	//USELEVELPROBE
-#endif	//USEDEBUGMONITOR
+//CPU OVERLOAD DETECTOR
+uint8_t cpuoverload = 0;
 
-	//ADC calibration
-	int CALIBRATIONMODE = 0;
+//ADC calibration
+	uint8_t CALIBRATIONMODE = 0;
+	//32766 + 128
+	#define maxcalsignallevel 32894
+	//32766 - 128
+	#define mincalsignallevel 32638
+	#define calsignalstep 2
+	uint16_t calsignalcurrlevel = 32767;
+	int8_t calsignalstate = 0;
 	uint32_t allchannelsum = 0;
 	uint32_t onechannelsum = 0;
+	uint32_t onechannelsample = 0;
+	uint32_t allchannelsample = 0;
 
 	//double pwm calibration variables
 	uint16_t histep=0;
@@ -288,15 +312,220 @@ static void errorhalt(int blinkcount);
 static void errorblink(int blinkcount);
 static uint16_t generatecalsignal();
 static void runcalibrationdisplay();
+static int debugmonitor_init();
+static void debugmonitor_run();
+static void debugdisplay(char* string, int line);
+void createleveprobe(char* buff,q15_t level,char* label);
 
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
 
+int debugmonitor_init()
+{
+	dmon = malloc(sizeof(debugmonitor));
+	if(dmon==NULL)
+		return ERR_DEBUGMON_INIT;
+	dmon->txbuff[0]=27;
+	dmon->txbuff[1] ='[';
+	dmon->txbuff[2] = 'H';
+	dmon->display = &(dmon->txbuff[3]);
+	dmon->displaydebug_currtick = 0;
+	dmon->displaydebug_prevtick = 0;
+	dmon->debugtext = "DEBUG TEXT";
+	dmon->serialtxcomplete = 1;
+	dmon->rxbuffindex = 0;
+	dmon->rxbuffsize = 40;
+	dmon->displaysize = 530;
+
+	for(int i=3;i<533;i++)
+	{
+		dmon->txbuff[i]=' ';
+	}
+	dmon->txbuff[532]=0;
+
+	for(int i=50;i<530;i++)
+	{
+	  if((i%53)==0)
+	  {
+		  dmon->display[i-2]='\n';
+		  dmon->display[i-1]='\r';
+	  }
+	}
+
+	debugdisplay("DEEPSTOMP PEDAL PROCESSOR DEBUG MONITOR",0);
+	if(USE_LEVEL_MONITOR)
+	{
+		dmon->levelprobe1 = dst_leveldetector_create(4410);
+		dmon->levelprobe2 = dst_leveldetector_create(4410);
+	}
+	return 0;
+}
+
+static void debugdisplay(char* string, int line)
+{
+	if(line>9)
+		return;
+	char* dest = &(dmon->display[53*line]);
+	strncpy(dest,string,50);
+	int len = strlen(string);
+	if(len>50)
+		len=50;
+	for(int i=len;i<50;i++)
+		dest[i]=' ';	//overwrite the old data with space
+}
+
+void debugSetText(char* text)
+{
+	if(USE_DEBUG_MONITOR)
+	{
+		dmon->debugtext = text;
+	}
+}
+
+void debugmonitor_run()
+{
+	dmon->displaydebug_currtick = HAL_GetTick();
+	if(dmon->displaydebug_currtick-dmon->displaydebug_prevtick<100)
+	  return;
+	dmon->displaydebug_prevtick = dmon->displaydebug_currtick;
+	int sr = adccounter * 10;
+	adccounter = 0;
+
+	snprintf(dmon->linebuffer,51,"Run: %d s, sfreq: %d, storage cycles: %ld",(int)dmon->displaydebug_currtick/1000,sr,storagecounter);
+	debugdisplay(dmon->linebuffer,1);
+	snprintf(dmon->linebuffer,51,"CAL (Hi: %d, Low: %d, ARR2: %d, Trial: %d)",(int)histep,(int)lostep,(int)TIM2->ARR,(int)calibcount);
+	debugdisplay(dmon->linebuffer,2);
+	if(cpucount==0)	//CPU overload
+		snprintf(dmon->linebuffer,51,"Module CPU: OVERLOAD");
+	else
+	{
+		snprintf(dmon->linebuffer,51,"Module CPU: %d%%",100*cpucount/MAXCPUCOUNT);
+	}
+	debugdisplay(dmon->linebuffer,3);
+
+	if(USE_LEVEL_MONITOR)
+	{
+		createleveprobe(dmon->linebuffer,INPUTLEVEL,"IN");
+		debugdisplay(dmon->linebuffer,4);
+		createleveprobe(dmon->linebuffer,dmon->levelout[0],"P1");
+		debugdisplay(dmon->linebuffer,5);
+		createleveprobe(dmon->linebuffer,dmon->levelout[1],"P2");
+		debugdisplay(dmon->linebuffer,6);
+		snprintf(dmon->linebuffer,51,"DTXT: %s",dmon->debugtext);
+		debugdisplay(dmon->linebuffer,7);
+		snprintf(dmon->linebuffer,51,"DVAR: %d, %d, %d, %d, %d, %d",
+				  dmon->debugvars[0],dmon->debugvars[1],dmon->debugvars[2],dmon->debugvars[3],dmon->debugvars[4],dmon->debugvars[5]);
+		debugdisplay(dmon->linebuffer,8);
+	}
+	else
+	{
+		snprintf(dmon->linebuffer,51,"DTXT: %s",dmon->debugtext);
+		debugdisplay(dmon->linebuffer,4);
+		snprintf(dmon->linebuffer,51,"DVAR: %d, %d, %d, %d",
+			  dmon->debugvars[0],dmon->debugvars[1],
+			  dmon->debugvars[2],dmon->debugvars[3]);
+		debugdisplay(dmon->linebuffer,5);
+	}
+
+	//return if DMA transfer is still working
+	if(dmon->serialtxcomplete == 0)
+	  return;
+	//reset the flag and start DMA transmit
+	dmon->serialtxcomplete = 0;
+	HAL_UART_Transmit_DMA(&huart1,(uint8_t*)dmon->txbuff,512);
+}
+
+void debugSetVar(int32_t var, uint8_t index)
+{
+	if(index>3)index = 3;
+	if(USE_DEBUG_MONITOR)
+	{
+		dmon->debugvars[index]=var;
+	}
+}
+void debugDetectLevel(q15_t signal, uint8_t channel)
+{
+	dmon->levelprobes[channel] = signal;
+}
+
+int8_t prevcalsignalstate = 0;
+uint16_t mincalsample = 65534;
+uint16_t maxcalsample = 0;
+uint16_t avgrange = 0;
+uint32_t rangesum = 0;
+uint32_t diffsum = 0;
+int16_t diffavg = 0;
+int avgcount = 0;
 static void runcalibrationdisplay()
 {
+	// if the sawtooth generator change the direction from down ramp to up ramp
+	// (changes every 128 steps, 64 steps up and 64 steps down)
+	// the input might have a phase shift but it would always be a complete cycle
+	if((calsignalstate==1)&&(prevcalsignalstate==0))
+	{
+		rangesum += (maxcalsample-mincalsample);	//sums for averaging
+		diffsum += allchannelsum-onechannelsum;		//difference between all and one channel
+		avgcount++;
+		if(avgcount==128)
+		{
+			avgrange = rangesum >> 7;	//the average range should 128 if the i/o level is properly adjusted
+			rangesum = 0;
+			avgcount = 0;
+			diffavg = (int16_t) ( diffsum >> 7);
+			/*the average difference between all and one channel should be 896
+			 * when the all channel is produced by 15bit ADC and the one channel is produced by (12bit_ADC << 3)
+			 */
+			diffsum = 0;
+		    if(USE_DEBUG_MONITOR)
+		    {
+		    	dmon->debugvars[0] = avgrange;
+		    	dmon->debugvars[1] = onechannelsum;
+				dmon->debugvars[2] = allchannelsum;
+				dmon->debugvars[3] = diffavg;
+		    }
+		}
+
+		//display avgrange on the 6-LED-bar, diffavg=128 for the center point
+		//activate 2-LEDs only for the center point
+	    int insignalindex = (avgrange>>3)-14;
+	    if(insignalindex < 0) insignalindex = 0;
+	    if(insignalindex > 4) insignalindex = 4;
+	    for(int i = 0;i<5;i++)
+	    {
+	    	int offset = 0;
+	    	if(i>=3) offset = 1;
+	    	HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[i+offset],ledindipin[i+offset],i==insignalindex);
+	    	if(i==2)
+	    		HAL_GPIO_WritePin((GPIO_TypeDef*)ledindiport[3],ledindipin[3],i==insignalindex);
+	    }
+
+	    //display diffavg on the 10-LED-bar, diffavg=896 for the center point
+	    //activate 2-LEDs only for the center point
+	    insignalindex = ( diffavg >> 7 ) - 3;
+		if(insignalindex < 0) insignalindex = 0;
+		if(insignalindex > 9) insignalindex = 8;
+		for(int i = 0;i<9;i++)
+		{
+			int offset = 0;
+			if(i>=5) offset = 1;
+			HAL_GPIO_WritePin((GPIO_TypeDef*)ledbarport[i+offset],ledbarpin[i+offset],i==insignalindex);
+			if(i==4)
+				HAL_GPIO_WritePin((GPIO_TypeDef*)ledbarport[5],ledbarpin[5],i==insignalindex);
+		}
+
+		onechannelsum = 0;
+		allchannelsum = 0;
+		mincalsample = 65534;
+		maxcalsample = 0;
+	}
+
+	prevcalsignalstate = calsignalstate;
+	if(onechannelsample > maxcalsample) maxcalsample = onechannelsample;
+	if(onechannelsample < mincalsample) mincalsample = onechannelsample;
 
 }
+
 
 void loadfromstorage()
 {
@@ -707,8 +936,10 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		 }
 
 		 //record the sum of both single and multi-channel
-		 onechannelsum += (((uint32_t)adcbuffer[8]) << 3);
-		 allchannelsum += temp;
+		 onechannelsample = (((uint32_t)adcbuffer[8]) << 3);
+		 onechannelsum += onechannelsample;
+		 allchannelsample = temp;
+		 allchannelsum += allchannelsample;
 
 		 //run calibration display
 		 runcalibrationdisplay();
@@ -733,21 +964,31 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		 q15_t nodcsignal;
 		 dst_dcremover_process(dcremover,&insample,&nodcsignal);
 		 dst_leveldetector_process(leveldetector,&nodcsignal,&INPUTLEVEL);
-	 #ifdef USELEVELPROBE
-		 dst_leveldetector_process(levelprobe1,&LEVELPROBE1,&levelp1);
-		 dst_leveldetector_process(levelprobe2,&LEVELPROBE2,&levelp2);
-	 #endif
+		 if(USE_LEVEL_MONITOR)
+		 {
+			 dst_leveldetector_process(dmon->levelprobe1,&dmon->levelprobes[0],&dmon->levelout[0]);
+			 dst_leveldetector_process(dmon->levelprobe2,&dmon->levelprobes[1],&dmon->levelout[1]);
+		 }
+
 		 q15_t noaliasing;
 		 antialiasing(&nodcsignal,&noaliasing);
 
-		 //processing the audio sample
-		 deepstomp_process(&noaliasing,&outsample);
+		 if(cpucount > MAXPROCESSINGCOUNT) //CPU overload is detected on previous processing
+		 {
+			 cpucount = 0;
+			 cpuoverload = 1;
+		 }
+		 else	////CPU overload is not detected on previous processing
+		 {
+			 //processing the audio sample
+			 deepstomp_process(&noaliasing,&outsample);
 
-		 //write the sample to the output
-		 temp = (int32_t) outsample + 32767; //convert outsample to dc signal
-		 TIM4->CCR1 = (0xff00 & temp)>>8;
-		 TIM2->CCR2 = 0xff & temp;
-		 cpucount = TIM1->CNT;
+			 //write the sample to the output
+			 temp = (int32_t) outsample + 32767; //convert outsample to dc signal
+			 TIM4->CCR1 = (0xff00 & temp)>>8;
+			 TIM2->CCR2 = 0xff & temp;
+			 cpucount = TIM1->CNT;
+		 }
 	 }
 
 }
@@ -765,8 +1006,10 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 		 }
 
 		 //record the sum of both single and multi-channel
-		 onechannelsum += (((uint32_t)adcbuffer[0]) << 3);
-		 allchannelsum += temp;
+		 onechannelsample = (((uint32_t)adcbuffer[0]) << 3);
+		 onechannelsum += onechannelsample;
+		 allchannelsample = temp;
+		 allchannelsum += allchannelsample;
 
 		 //run calibration display
 		 runcalibrationdisplay();
@@ -792,125 +1035,56 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 		 q15_t nodcsignal;
 		 dst_dcremover_process(dcremover,&insample,&nodcsignal);
 		 dst_leveldetector_process(leveldetector,&nodcsignal,&INPUTLEVEL);
-	#ifdef USELEVELPROBE
-		 dst_leveldetector_process(levelprobe1,&LEVELPROBE1,&levelp1);
-		 dst_leveldetector_process(levelprobe2,&LEVELPROBE2,&levelp2);
-	#endif
+		 if(USE_LEVEL_MONITOR)
+		 {
+			 dst_leveldetector_process(dmon->levelprobe1,&dmon->levelprobes[0],&dmon->levelout[0]);
+			 dst_leveldetector_process(dmon->levelprobe2,&dmon->levelprobes[1],&dmon->levelout[1]);
+		 }
 		 q15_t noaliasing;
 		 antialiasing(&nodcsignal,&noaliasing);
 
-		 //processing the audio sample
-		 deepstomp_process(&noaliasing,&outsample);
+		 if(cpucount > MAXPROCESSINGCOUNT) //CPU overload is detected on previous processing
+		 {
+			 cpucount = 0;
+			 cpuoverload = 1;
+		 }
+		 else	////CPU overload is not detected on previous processing
+		 {
+			 //processing the audio sample
+			 deepstomp_process(&noaliasing,&outsample);
 
-		 //write the sample to the output
-		 temp = (int32_t) outsample + 32767;	//convert outsample to dc signal
-		 TIM4->CCR1 = (0xff00 & temp)>>8;
-		 TIM2->CCR2 = 0xff & temp;
-		 cpucount = TIM1->CNT;
+			 //write the sample to the output
+			 temp = (int32_t) outsample + 32767; //convert outsample to dc signal
+			 TIM4->CCR1 = (0xff00 & temp)>>8;
+			 TIM2->CCR2 = 0xff & temp;
+			 cpucount = TIM1->CNT;
+		 }
 	 }
 }
 
-#ifdef USEDEBUGMONITOR
 
-	void HAL_UART_TxCpltCallback (UART_HandleTypeDef * huart)
+void HAL_UART_TxCpltCallback (UART_HandleTypeDef * huart)
+{
+	if(huart == &huart1)
 	{
-		if(huart == &huart1)
-		{
-			serialtxcomplete = 1;
-		}
-
+		if(USE_DEBUG_MONITOR)
+			dmon->serialtxcomplete = 1;
 	}
+}
 
-	void serialdisplay(char* string, int line)
+void createleveprobe(char* buff,q15_t level,char* label)
+{
+	strncpy(buff,label,2);
+	buff[2]=':';
+	uint8_t x = level/819;
+	for(uint8_t i=3;i<43;i++)
 	{
-		if(line>9)
-			return;
-		char* dest = &display[53*line];
-		strncpy(dest,string,50);
-		int len = strlen(string);
-		if(len>50)
-			len=50;
-		for(int i=len;i<50;i++)
-			dest[i]=' ';	//overwrite the old data with space
+		if((i-3) > x)
+			buff[i]= ' ';
+		else buff[i]= '#';
 	}
-
-	void createleveprobe(char* buff,q15_t level,char* label)
-	{
-		strncpy(buff,label,2);
-		buff[2]=':';
-		uint8_t x = level/819;
-		for(uint8_t i=3;i<43;i++)
-		{
-			if((i-3) > x)
-				buff[i]= ' ';
-			else buff[i]= '#';
-		}
-		snprintf(&buff[43],8," %5d",(int)level);
-	}
-
-	void serialdisplayinit()
-	{
-		  txbuff[0] = 27;
-		  txbuff[1] ='[';
-		  txbuff[2] = 'H';
-		  display = &txbuff[3];
-		  for(int i=50;i<530;i++)
-		  {
-			  if((i%53)==0)
-			  {
-				  display[i-2]='\n';
-				  display[i-1]='\r';
-			  }
-		  }
-		  serialdisplay("DEEPSTOMP PEDAL PROCESSOR DEBUG MONITOR",0);
-	}
-
-	uint32_t displaydebug_prevtick = 0;
-	uint32_t displaydebug_currtick = 0;
-	void displaydebuginfo()
-	{
-		displaydebug_currtick = HAL_GetTick();
-		  if(displaydebug_currtick-displaydebug_prevtick<100)
-			  return;
-
-		  displaydebug_prevtick = displaydebug_currtick;
-		  int sr = adccounter * 10;
-		  adccounter = 0;
-		  snprintf(linebuffer,51,"Run: %d seconds, sfreq: %d",(int)displaydebug_currtick/1000,sr);
-		  serialdisplay(linebuffer,1);
-		  snprintf(linebuffer,51,"CAL (Hi: %d, Low: %d, ARR2: %d, Trial: %d)",(int)histep,(int)lostep,(int)TIM2->ARR,(int)calibcount);
-		  serialdisplay(linebuffer,2);
-		  snprintf(linebuffer,51,"Module CPU: %d%%, Storage Cycle: %ld",100*cpucount/1632, storagecounter);
-		  serialdisplay(linebuffer,3);
-		#ifndef USELEVELPROBE
-		  snprintf(linebuffer,51,"DTXT: %s",DEBUGTEXT);
-		  serialdisplay(linebuffer,4);
-		  snprintf(linebuffer,51,"DVAR: %d, %d, %d, %d, %d, %d",
-				  DEBUGVARS[0],DEBUGVARS[1],DEBUGVARS[2],DEBUGVARS[3],DEBUGVARS[4],DEBUGVARS[5]);
-		  serialdisplay(linebuffer,5);
-		#endif	//not USELEVELPROBE
-		#ifdef USELEVELPROBE
-		  createleveprobe(linebuffer,INPUTLEVEL,"IN");
-		  serialdisplay(linebuffer,4);
-		  createleveprobe(linebuffer,levelp1,"P1");
-		  serialdisplay(linebuffer,5);
-		  createleveprobe(linebuffer,levelp2,"P2");
-		  serialdisplay(linebuffer,6);
-		  snprintf(linebuffer,51,"DTXT: %s",DEBUGTEXT);
-		  serialdisplay(linebuffer,7);
-		  snprintf(linebuffer,51,"DVAR: %d, %d, %d, %d, %d, %d",
-				  DEBUGVARS[0],DEBUGVARS[1],DEBUGVARS[2],DEBUGVARS[3],DEBUGVARS[4],DEBUGVARS[5]);
-		  serialdisplay(linebuffer,8);
-		#endif	//USELEVELPROBE
-
-		  //return if DMA transfer is still working
-		  if(serialtxcomplete == 0)
-			  return;
-		  //reset the flag and start DMA transmit
-		  serialtxcomplete = 0;
-		  HAL_UART_Transmit_DMA(&huart1,(uint8_t*)txbuff,512);
-	}
-#endif
+	snprintf(&buff[43],8," %5d",(int)level);
+}
 
 uint16_t readcalinput()
 {
@@ -983,26 +1157,42 @@ void displaybar(int8_t level, uint8_t levelcount, uint8_t type)
 	if(levelcount<11)
 	{
 		if(type==dsdisplaytype_bar)
+		{
 			for(int i=0;i<10;i++)
 			{
 				if(i>level)
 					barstate[i]=0;
 				else barstate[i]=2;
 			}
-		if(type==dsdisplaytype_blinkdot)
+		}
+		else
+		if(type==dsdisplaytype_blinkbar)
+		{
+			for(int i=0;i<10;i++)
+			{
+				if(i>level)
+					barstate[i]=0;
+				else barstate[i]=1;
+			}
+		}
+		else if(type==dsdisplaytype_blinkdot)
+		{
 			for(int i=0;i<10;i++)
 			{
 				if(i==level)
 					barstate[i]=1;
 				else barstate[i]=0;
 			}
+		}
 		else	//dot type
+		{
 			for(int i=0;i<10;i++)
 			{
 				if(i==level)
 					barstate[i]=2;
 				else barstate[i]=0;
 			}
+		}
 	}
 	else if(levelcount<20)
 	{
@@ -1095,7 +1285,12 @@ void animatebar()
 	  //select channel
 	  if(bardisplaychannel == barchannel_input)
 	  {
-		  displaybar(INPUTLEVEL/3276,10,dsdisplaytype_bar);
+		  if(cpuoverload)
+		  {
+			  displaybar(2,10,dsdisplaytype_blinkbar);
+			  cpuoverload = 0;
+		  }
+		  else displaybar(INPUTLEVEL/3276,10,dsdisplaytype_bar);
 	  }
 	  else if(bardisplaychannel == barchannel_param)
 	  {
@@ -1466,15 +1661,6 @@ static int8_t multieffectmodulechange(uint32_t handle, int8_t newvalue)
 	return newvalue;
 }
 
-//32767 + 128
-#define maxcalsignallevel 32895
-//32767 - 128
-#define mincalsignallevel 32639
-#define calsignalstep 1
-
-uint16_t calsignalcurrlevel = 32767;
-int8_t calsignalstate = 0;
-
 static uint16_t generatecalsignal()
 {
 	if(calsignalstate)
@@ -1537,14 +1723,6 @@ int main(void)
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
-	#ifdef USEDEBUGMONITOR
-		serialdisplayinit();
-	#ifdef USELEVELPROBE
-		levelprobe1 = dst_leveldetector_create(4410);
-		levelprobe2 = dst_leveldetector_create(4410);
-	#endif //USELEVELPROBE
-	#endif	//USEDEBUGMONITOR
-
 	//create and initialize signal preprocessors
 	leveldetector = dst_leveldetector_create(4410);	//create level detector for 1/10 second sampling window
 	dcremover = dst_dcremover_create();
@@ -1601,14 +1779,6 @@ int main(void)
 	  //error blink: too high resistor value
 	  if(TIM2->ARR > 350)
 		  errorblink(ERR_TOO_HIGH_RESISTOR);
-
-	//start timer 1: cpu cycle counter
-	HAL_TIM_Base_Start(&htim1);
-
-	//START AUDIO ADC
-	TIM3->ARR = 1632;	//44.1kHz sampling rate
-	HAL_TIM_Base_Start(&htim3);
-	HAL_ADC_Start_DMA(&hadc1,(uint32_t*)adcbuffer,16);
 
 	//init blank param
 	paramdump.onchange=NULL;
@@ -1721,36 +1891,60 @@ int main(void)
 		}
 	}
 
+
+	//start timer 1: cpu cycle counter
+	HAL_TIM_Base_Start(&htim1);
+
+	//initialize debug monitor
+	if(USE_DEBUG_MONITOR)
+	{
+		int res = debugmonitor_init();
+		if(res)
+			errorblink(res);
+	}
+
+	//START AUDIO ADC
+	TIM3->ARR = 1632;	//44.1kHz sampling rate
+	HAL_TIM_Base_Start(&htim3);
+	HAL_ADC_Start_DMA(&hadc1,(uint32_t*)adcbuffer,16);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-	if(CALIBRATIONMODE)
+	//if rotary switch id pressed while powering-up
+	//then enter calibration operation for the ADC
+	if(readrotsw()==0)
 	{
+		//setup the calibration data
+		CALIBRATIONMODE = 1;
 		while(1)
 		{
-			//do nothing, all routine will handled by interrupt service routine
+			if(USE_DEBUG_MONITOR)
+			  {
+				  debugmonitor_run();
+			  }
 		}
 	}
-	else
+	else //enter normal operation mode
 	{
 	  while (1)
 	  {
-		#ifdef USEDEBUGMONITOR
-		  DEBUGVARS[0]=presettostore;
-			  displaydebuginfo();
-		#endif
 			  menu();
 			  animatebar();
 			  rotscan();
 			  rotencode();
 			  indiblink();
 			  runstoragewrite();
+			  if(USE_DEBUG_MONITOR)
+			  {
+				  debugmonitor_run();
+			  }
 
-	  /* USER CODE END WHILE */
+  /* USER CODE END WHILE */
 
-	  /* USER CODE BEGIN 3 */
+  /* USER CODE BEGIN 3 */
 
 	  }
 	}

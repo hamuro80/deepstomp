@@ -39,28 +39,21 @@
 #include <arm_math.h>
 
 /* ####################################################################################
- * DEBUGGING PREPROCESSOR
+ * DEBUGGING FLAGS
+ * Set to 0 to disable, set to 1 to enable
+ * Use USE_LEVEL_MONITOR wisely, it consumes significant CPU cycles, activate only the
+ * debugged module if necessary. USE_LEVEL_MONITOR won't work if USE_DEBUGMONITOR = 0
  */
-// Uncomment or comment the following define preprocessor
-// to compile with or without the serial debug monitor
-// if USEDEBUGMONITOR is defined, then you can choose to
-// enable or disable USELEVELPROBE by uncommenting or
-// commenting the preprocessor
+int8_t USE_DEBUG_MONITOR;
+int8_t USE_LEVEL_MONITOR;
 
-//#define USEDEBUGMONITOR
-//#define USELEVELPROBE
-
-// define monitored variables for debugging
-// these variables is accessible by all modules that includes this header when
-// USEDEBUGMONITOR is defined
-#ifdef USEDEBUGMONITOR
-	char* DEBUGTEXT;
-	int DEBUGVARS[6];
-#ifdef USELEVELPROBE
-	q15_t LEVELPROBE1;
-	q15_t LEVELPROBE2;
-#endif	//USELEVELPROBE
-#endif	//USEDEBUGMONITOR
+/* ####################################################################################
+ * DEBUGGING API
+ * Use them in any effect module only for debugging purpose
+ */
+void debugSetText(char* text);
+void debugSetVar(int32_t var, uint8_t index);	//index = 0..6
+void debugDetectLevel(q15_t signal, uint8_t channel);	//channel = 0 or 1
 
 /* ####################################################################################
  * GENERAL USEFUL CONSTANTS AND DEFINITIONS
@@ -171,5 +164,6 @@ __weak int deepstomp_modulesetup();
 // this function will be called by main core at every audio sample reading
 // (at 44.1 kHz sampling rate).
 __weak void deepstomp_process(q15_t* input,q15_t* output);
+
 
 #endif /* DEEPSTOMP_H_ */
