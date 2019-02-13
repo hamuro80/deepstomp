@@ -72,3 +72,9 @@ IMPLEMENTED EFFECT MODULES
 - Distortion, featured with overdrive mode, fuzz mode, and hi-lo tone control
 - Delay, featured with time, feedback, and balance control
 
+CHANGE NOTES
+Version 1.1
+  - Modified hardware schematic, fully tested
+Version 1.0
+- Initial version
+

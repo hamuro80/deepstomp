@@ -15,12 +15,8 @@ The standard features of this main bord is:
 - One 40 pins female header socket for plugging the deepstomp CPU board
 
 Change Notes:
-Version 1.0 (deepstomp-main-board-schematic.gif)
-- First published, modified from unpublished prototype, the unpublished circuit failed to meet noise-level restriction, and this published version is not tested
 Version 1.1 (deepstomp-main-board-schematic-1.1.gif)
-- Added component reference
-- Changed some components values
-- Successfully tested
+The first tested complete schematic modified from previous version
 
 DEEPSTOMP CPU BOARD
 The CPU board is a blue-pill compatible board, as shown in the deepstomp-cpu-board-stm32f1-blue-pill.png file. The STLINK port and the USB port are not used, so you can omit them if you design your own custom PCU board.
