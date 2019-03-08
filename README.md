@@ -74,6 +74,7 @@ IMPLEMENTED EFFECT MODULES
 
 SOFTWARE FUTURE WORKS
 - Implement multi-modal mode
+- Adding on/off toggle interface for module management for better memory management
 - Implement expression pedal extension through serial port with MIDI protocol
 
 CHANGE NOTES
