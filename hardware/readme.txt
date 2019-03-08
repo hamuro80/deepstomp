@@ -1,8 +1,8 @@
 DEEPSTOMP MAIN BOARD
-Deepstomp's main board schematic board is shown in the deepstomp-main-board-schematic.png. This schematic diagram has no component reference yet, so you can assign the references yourself when designing your own PCB.
+Version: 1.2
 
 The standard features of this main bord is:
-- Power supply input: 9V DC (negative at the outer circle/tube and ground at the center)
+- Power supply input: 9V DC (positive at the outer circle/tube and negative/ground at the center pin)
 - One LED for power indicator
 - One LED for bypass-state check
 - Six LEDs for control/params/module/preset indicator
@@ -14,7 +14,12 @@ The standard features of this main bord is:
 - One output level potentiometer to ensure the balance between processed output and bypassed input volume.
 - One 40 pins female header socket for plugging the deepstomp CPU board
 
-Change Notes:
+CHANGE NOTES
+Version. 1.2
+- file has change from .gif to .png
+- C1 has been increased for better bass-response
+- C1, C6, C9 has been changed to electrolityc type since it has better stability for biased condition
+
 Version 1.1 (deepstomp-main-board-schematic-1.1.gif)
 The first tested complete schematic modified from previous version
 

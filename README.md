@@ -1,5 +1,8 @@
 # deepstomp
 
+DEEPSTOMP - OPEN PLATFORM FOR DIY PROGRAMMABLE DIGITAL MULTI-EFFECT PEDAL
+
+Version: 1.3
 AUTHOR: HAMURO
 COPYRIGHT(c) 2018 DEEPTRONIC.COM
 
@@ -73,6 +76,13 @@ IMPLEMENTED EFFECT MODULES
 - Delay, featured with time, feedback, and balance control
 
 CHANGE NOTES
+Version 1.3
+- Hardware improvement from v1.1. to v1.2
+- Added semitones display type for module's controllable parameter
+- Added guitar (or general musical instrument) tuner
+- Fixed last accessed module after storing or restoring the preset at any location
+- Added user manual at https://www.deepstomp.com/deepstomps-user-manual/
+
 Version 1.2
 - Added manual ADC calibration operation when device is switched on while the rotary switch is pressed and hold
 - Added CPU overload detection and indication to prevent user interface hanging up and friendly debugging.

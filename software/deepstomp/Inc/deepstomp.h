@@ -52,7 +52,7 @@ int8_t USE_LEVEL_MONITOR;
  * Use them in any effect module only for debugging purpose
  */
 void debugSetText(char* text);
-void debugSetVar(int32_t var, uint8_t index);	//index = 0..6
+void debugSetVar(int32_t var, uint8_t index);	//index = 0..4
 void debugDetectLevel(q15_t signal, uint8_t channel);	//channel = 0 or 1
 
 /* ####################################################################################

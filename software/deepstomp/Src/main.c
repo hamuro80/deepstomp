@@ -84,15 +84,10 @@
 #include "dstlib_dcremover.h"
 
 //ENUMERATED CONSTANTS
-enum {dsdisplaytype_bar, dsdisplaytype_dot, dsdisplaytype_blinkdot,dsdisplaytype_blinkbar};
+enum {dsdisplaytype_bar, dsdisplaytype_dot, dsdisplaytype_blinkdot,dsdisplaytype_blinkbar,dsdisplaytype_semitones};
 enum {editexit_expired,editexit_click,editexit_longpress,
 	editexit_storepresetexpired,editexit_storepresetclick,
 	editexit_storepresetlongpress};
-
-//maximum CPU clock count for sample to sample acquisition
-#define MAXCPUCOUNT	1632
-//maximum CPU clock count for single sample processing to indicate CPU overload
-#define MAXPROCESSINGCOUNT	1450
 
 //ERROR BLINK CODES
 #define ERR_TOO_MANY_CAL_TRIALS	2
@@ -153,6 +148,43 @@ enum {editexit_expired,editexit_click,editexit_longpress,
 #define LED_BAR_9_Pin GPIO_PIN_13
 #define LED_BAR_9_GPIO_Port GPIOB
 
+//maximum CPU clock count for sample to sample acquisition
+#define MAXCPUCOUNT	1632
+//maximum CPU clock count for single sample processing to indicate CPU overload
+#define MAXPROCESSINGCOUNT	1450
+//CPU OVERLOAD DETECTOR
+uint8_t cpuoverload = 0;
+
+//ADC calibration
+uint8_t CALIBRATIONMODE = 0;
+//32766 + 128
+#define maxcalsignallevel 32894
+//32766 - 128
+#define mincalsignallevel 32638
+#define calsignalstep 2
+//difference between onechannel and allchannel = 896
+#define standarddiff 	896
+
+//ADC calibration data
+typedef struct
+{
+	uint16_t calsignalcurrlevel;
+	int8_t calsignalstate;
+	uint32_t allchannelsum ;
+	uint32_t onechannelsum ;
+	uint32_t onechannelsample;
+	uint32_t allchannelsample;
+
+	int8_t prevcalsignalstate;
+	uint16_t mincalsample;
+	uint16_t maxcalsample;
+	uint16_t avgrange;
+	uint32_t rangesum;
+	uint32_t diffsum;
+	int16_t diffavg;
+	int avgcount;
+} adccaldata;
+
 typedef struct
 {
 	int32_t storagecounter;
@@ -177,6 +209,7 @@ typedef struct
 	modulearray preset[19];
 } preset;
 
+//debug monitor data
 typedef struct
 {
 	char txbuff[533];
@@ -189,17 +222,55 @@ typedef struct
 	int displaysize;
 	char linebuffer[51];
 	volatile uint8_t serialtxcomplete;
-	int debugvars[4];
+	long int debugvars[4];
 
 	q15_t levelprobes[2];
 	q15_t levelout[2];
 	dst_leveldetector_handle levelprobe1;
 	dst_leveldetector_handle levelprobe2;
 
-	uint32_t displaydebug_prevtick;
-	uint32_t displaydebug_currtick;
+	uint32_t run_prevtick;
+	uint32_t run_currtick;
 
 } debugmonitor;
+
+
+enum {tunerfillstate_start,tunerfillstate_waitlow,tunerfillstate_waitrising,
+	tunerfillstate_waitfalling,tunerfillstate_waitsecondrising,
+	tunerfillstate_placetobin,tunerfillstate_findthenote,tunerfillstate_idle};
+//Scaled 8x (one-period sample count)  of C to B semitone notes (65.41Hz - 123.47Hz)
+uint32_t const periodcountcenter8x[] =
+{5394,5091,4805,4536,4281,4041,3814,3600,3398,3207,3027,2857};
+
+//period count at semitone boundary
+uint32_t const periodcountboundary8x[] =
+{5552,5240,4946,4669,4407,4159,3926,3706,3498,3301,3116,2941,2776};
+
+typedef struct
+{
+	uint8_t detectednote;
+	int8_t notedeviation;
+	uint8_t audiomute;
+	uint32_t periodcounter;
+	uint32_t previousperiod;
+	uint32_t accumulatedperiod;
+	uint16_t accumulatedcycle;
+	uint16_t nosignalcounter;
+	uint8_t fillstate;
+	uint16_t detectionlength;
+	q15_t positivethreshold;
+	q15_t negativethreshold;
+	uint16_t peakdetectcounter;
+	uint8_t peakdetectstate;
+	q15_t pospeak0;
+	q15_t pospeak1;
+	q15_t negpeak0;
+	q15_t negpeak1;
+	uint32_t run_prevtick;
+	uint32_t run_currtick;
+	uint8_t run_state;
+} instrumenttuner;
+
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -220,27 +291,18 @@ DMA_HandleTypeDef hdma_usart1_tx;
 //Debug monitor
 debugmonitor* dmon;
 
-//CPU OVERLOAD DETECTOR
-uint8_t cpuoverload = 0;
-
-//ADC calibration
-	uint8_t CALIBRATIONMODE = 0;
-	//32766 + 128
-	#define maxcalsignallevel 32894
-	//32766 - 128
-	#define mincalsignallevel 32638
-	#define calsignalstep 2
-	uint16_t calsignalcurrlevel = 32767;
-	int8_t calsignalstate = 0;
-	uint32_t allchannelsum = 0;
-	uint32_t onechannelsum = 0;
-	uint32_t onechannelsample = 0;
-	uint32_t allchannelsample = 0;
-
 	//double pwm calibration variables
 	uint16_t histep=0;
 	uint16_t lostep=0;
 	int calibcount=0;
+
+
+	//ADC calibration data
+	adccaldata* caldata;
+
+	//musical instrument  tuner
+	instrumenttuner* tuner;
+	uint8_t tunermode = 0;
 
 	//audio input-output variables
 	q15_t INPUTLEVEL;	//the detected input level before any processing by effect application
@@ -277,6 +339,9 @@ uint8_t cpuoverload = 0;
 	preset* PRESETBUFFER;	//preset buffer pointer
 
 	//led indicator and led bar constants
+	//led indicator states buffer
+	uint8_t ledindibuttonstate[] = {0,0,0,0,0,0};	//when activated by toggle or radio button
+
 const GPIO_TypeDef* ledbarport[] = {LED_BAR_0_GPIO_Port,LED_BAR_1_GPIO_Port,LED_BAR_2_GPIO_Port,
 		LED_BAR_3_GPIO_Port,LED_BAR_4_GPIO_Port,LED_BAR_5_GPIO_Port,
 		LED_BAR_6_GPIO_Port,LED_BAR_7_GPIO_Port,LED_BAR_8_GPIO_Port,
@@ -316,10 +381,288 @@ static int debugmonitor_init();
 static void debugmonitor_run();
 static void debugdisplay(char* string, int line);
 void createleveprobe(char* buff,q15_t level,char* label);
+void adccal_init();
+void tuner_init();
+void tuner_fillnotebins(q15_t* input);
+void tuner_detectpeak(q15_t* input);
+void tuner_run();
+
 
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
+
+enum {tuner_runstate_start,tuner_runstate_waitfill,tuner_runstate_setdisplay};
+void tuner_run()
+{
+	tuner->run_currtick = HAL_GetTick();
+	if((tuner->run_currtick - tuner->run_prevtick) < 2) // execute every 2 milliseconds
+		return;
+
+	tuner->run_prevtick = tuner->run_currtick;
+	switch(tuner->run_state)
+	{
+		case tuner_runstate_start:
+		{
+			tuner->fillstate = tunerfillstate_start;
+			tuner->run_state = tuner_runstate_waitfill;
+			break;
+		}
+		case tuner_runstate_waitfill:
+		{
+			if(tuner->fillstate == tunerfillstate_idle)
+				tuner->run_state = tuner_runstate_setdisplay;
+			break;
+		}
+		case tuner_runstate_setdisplay:
+		{
+			if(tuner->accumulatedcycle > 0)
+			{
+				int32_t averageperiod = (tuner->accumulatedperiod<<3)/ tuner->accumulatedcycle;
+
+				//normalize the period to the standard octave
+				while(averageperiod > periodcountboundary8x[0])
+					averageperiod = averageperiod >> 1;
+				while(averageperiod < periodcountboundary8x[12])
+					averageperiod = averageperiod << 1;
+
+				for(uint8_t i=1;i<13;i++)
+				{
+					if(averageperiod > periodcountboundary8x[i])
+					{
+						tuner->detectednote = i-1;
+						break;
+					}
+				}
+				debugSetVar(averageperiod,0);
+				debugSetVar(tuner->accumulatedcycle,1);
+				debugSetVar(tuner->detectednote,2);
+
+				//set the deviation display
+				tuner->notedeviation = 0;
+				int32_t ndev = averageperiod - periodcountcenter8x[tuner->detectednote];
+				int downstep = (periodcountboundary8x[tuner->detectednote]-
+								periodcountcenter8x[tuner->detectednote])/3;
+				int upstep = (periodcountcenter8x[tuner->detectednote]
+								- periodcountboundary8x[1+tuner->detectednote])/3;
+
+				//translate the detected note to differentiate mute and unmuted operation
+				if(tuner->audiomute)
+					tuner->detectednote += 12;
+				else tuner->detectednote += 24;
+
+				//first turn off all note deviation indicator leds
+				for(int i=0;i<6;i++)
+					ledindibuttonstate[i]=0;
+
+				//if deviate above the center frequency
+				if(ndev < 0)
+				{
+					int upindex = -ndev/downstep;
+					if(upindex >2) upindex = 2;
+					ledindibuttonstate[3+upindex]=1;
+
+					//if only slightly above the center
+					if(ndev > (- upstep>>1))
+						ledindibuttonstate[2]=1;
+
+				}
+				else if(ndev>0) //if deviate below the center frequency
+				{
+					int downindex = ndev/downstep;
+					if(downindex >2) downindex = 2;
+					ledindibuttonstate[2-downindex]=1;
+
+					//if only slightly above the center
+					if(ndev < (upstep>>1))
+						ledindibuttonstate[3]=1;
+				}
+				else	//if not deviate
+				{
+					ledindibuttonstate[3]=1;
+					ledindibuttonstate[2]=1;
+				}
+
+				//reset nosignal counter
+				tuner->nosignalcounter = 0;
+
+			}
+			else	//no signal detected
+			{
+				//turn off all note deviation indicator leds
+				if(tuner->nosignalcounter<11)
+					tuner->nosignalcounter++;
+				if(tuner->nosignalcounter>5) //more than 1 second
+				{
+					for(int i=0;i<6;i++)
+					{
+						ledindibuttonstate[i]=0;
+					}
+				}
+			}
+
+			tuner->run_state = tuner_runstate_start;
+			break;
+		}
+	}
+}
+
+void tuner_init()
+{
+	tuner = malloc(sizeof(tuner));
+	tuner->detectednote = 24;
+	tuner->notedeviation = -4;
+	tuner->audiomute = 0;
+	tuner->run_state = tuner_runstate_start;
+	tuner->run_prevtick = 0;
+	tuner->run_prevtick = 0;
+	tuner->fillstate = tunerfillstate_idle;
+	tuner->peakdetectcounter = 0;
+	tuner->peakdetectstate = 0;
+	tuner->pospeak0 = 0;
+	tuner->pospeak1 = 0;
+	tuner->negpeak0 = 0;
+	tuner->negpeak1 = 0;
+	tuner->nosignalcounter = 0;
+}
+
+void tuner_detectpeak(q15_t* input)
+{
+	tuner->peakdetectcounter++;
+	q15_t positivepeak,negativepeak;
+	if(tuner->peakdetectstate == 0)
+	{
+		if((*input)>tuner->pospeak0) tuner->pospeak0 = (*input);
+		if((*input)<tuner->negpeak0) tuner->negpeak0 = (*input);
+		if(tuner->peakdetectcounter > 2205)
+		{
+			tuner->peakdetectcounter = 0;
+			tuner->peakdetectstate = 1;
+			if(tuner->pospeak0 > tuner->pospeak1)
+				positivepeak = tuner->pospeak0;
+			else positivepeak = tuner->pospeak1;
+			if(tuner->negpeak0 < tuner->negpeak1)
+				negativepeak = tuner->negpeak0;
+			else negativepeak = tuner->negpeak1;
+
+			tuner->positivethreshold = (q15_t) ((q31_t)(positivepeak << 3)/10);
+			tuner->negativethreshold = (q15_t) ((q31_t)(negativepeak << 3)/10);
+
+			tuner->pospeak1 = 0;
+			tuner->negpeak1 = 0;
+
+
+		}
+	}
+	else
+	{
+		if((*input)>tuner->pospeak1) tuner->pospeak1 = (*input);
+		if((*input)<tuner->negpeak1) tuner->negpeak1 = (*input);
+		if(tuner->peakdetectcounter > 2205)
+		{
+			tuner->peakdetectcounter = 0;
+			tuner->peakdetectstate = 0;
+
+			//select the maximum minimum
+			if(tuner->pospeak0 > tuner->pospeak1)
+				positivepeak = tuner->pospeak0;
+			else positivepeak = tuner->pospeak1;
+			if(tuner->negpeak0 < tuner->negpeak1)
+				negativepeak = tuner->negpeak0;
+			else negativepeak = tuner->negpeak1;
+
+			tuner->positivethreshold = (q15_t) ((q31_t)(positivepeak << 3)/10);
+			tuner->negativethreshold = (q15_t) ((q31_t)(negativepeak << 3)/10);
+
+			//reset the variable for the next phase
+			tuner->pospeak0 = 0;
+			tuner->negpeak0 = 0;
+		}
+	}
+}
+
+void tuner_fillnotebins(q15_t* input)
+{
+	tuner_detectpeak(input);
+	switch(tuner->fillstate)
+	{
+		case tunerfillstate_start:
+		{
+			tuner->detectionlength = 0;
+			tuner->accumulatedcycle = 0;
+			tuner->accumulatedperiod = 0;
+			tuner->negativethreshold = 0;
+			tuner->positivethreshold = 0;
+			tuner->fillstate = tunerfillstate_waitlow;
+			break;
+		}
+		case tunerfillstate_waitlow:
+		{
+			if((tuner->positivethreshold > 500) && ((*input)<0))
+				tuner->fillstate = tunerfillstate_waitrising;
+			break;
+		}
+		case tunerfillstate_waitrising:
+		{
+			if((*input)>tuner->positivethreshold)
+			{
+				tuner->periodcounter = 0;
+				tuner->fillstate = tunerfillstate_waitfalling;
+			}
+			break;
+		}
+		case tunerfillstate_waitfalling:
+		{
+			tuner->periodcounter++;
+			if((*input) < tuner->negativethreshold)
+				tuner->fillstate = tunerfillstate_waitsecondrising;
+			break;
+		}
+		case tunerfillstate_waitsecondrising:
+		{
+			tuner->periodcounter++;
+			if((*input) > tuner->positivethreshold)
+			{
+				//filter the detected period
+				//if periodcounter differs not more than on semitone than previous then
+				//accumulate the period and update the previous with the new period
+				//if differs more that one semitones (6%) then update the previous with
+				//the new one and discard the mesured period
+
+				//if between 20-2000Hz
+				if((tuner->periodcounter > 20)&&(tuner->periodcounter<2200))
+				{
+					int32_t perioddiff ;
+					if(tuner->periodcounter > tuner->previousperiod)
+							perioddiff = (tuner->periodcounter - tuner->previousperiod)<<10;
+					else  perioddiff = (tuner->previousperiod - tuner->periodcounter)<<10;
+
+					if((perioddiff/tuner->previousperiod) <= 61)	//if not differ more than one semitone
+					{
+						tuner->accumulatedcycle++;
+						tuner->accumulatedperiod += tuner->periodcounter;
+					}
+					tuner->previousperiod = tuner->periodcounter;
+				}
+
+				//reset period counter
+				tuner->periodcounter = 0;
+				tuner->fillstate = tunerfillstate_waitfalling;
+			}
+			break;
+		}
+		case tunerfillstate_idle:
+		{
+			break;
+		}
+
+	}
+
+	if(tuner->fillstate != tunerfillstate_idle)
+		tuner->detectionlength++;
+	if(tuner->detectionlength > 8820)	// more than 0.2 seconds
+		tuner->fillstate = tunerfillstate_idle; //stop the detection
+}
 
 int debugmonitor_init()
 {
@@ -330,8 +673,6 @@ int debugmonitor_init()
 	dmon->txbuff[1] ='[';
 	dmon->txbuff[2] = 'H';
 	dmon->display = &(dmon->txbuff[3]);
-	dmon->displaydebug_currtick = 0;
-	dmon->displaydebug_prevtick = 0;
 	dmon->debugtext = "DEBUG TEXT";
 	dmon->serialtxcomplete = 1;
 	dmon->rxbuffindex = 0;
@@ -385,14 +726,14 @@ void debugSetText(char* text)
 
 void debugmonitor_run()
 {
-	dmon->displaydebug_currtick = HAL_GetTick();
-	if(dmon->displaydebug_currtick-dmon->displaydebug_prevtick<100)
+	dmon->run_currtick = HAL_GetTick();
+	if(dmon->run_currtick-dmon->run_prevtick<100)
 	  return;
-	dmon->displaydebug_prevtick = dmon->displaydebug_currtick;
+	dmon->run_prevtick = dmon->run_currtick;
 	int sr = adccounter * 10;
 	adccounter = 0;
 
-	snprintf(dmon->linebuffer,51,"Run: %d s, sfreq: %d, storage cycles: %ld",(int)dmon->displaydebug_currtick/1000,sr,storagecounter);
+	snprintf(dmon->linebuffer,51,"Run: %d s, sfreq: %d, storage cycles: %ld",(int)dmon->run_currtick/1000,sr,storagecounter);
 	debugdisplay(dmon->linebuffer,1);
 	snprintf(dmon->linebuffer,51,"CAL (Hi: %d, Low: %d, ARR2: %d, Trial: %d)",(int)histep,(int)lostep,(int)TIM2->ARR,(int)calibcount);
 	debugdisplay(dmon->linebuffer,2);
@@ -412,19 +753,25 @@ void debugmonitor_run()
 		debugdisplay(dmon->linebuffer,5);
 		createleveprobe(dmon->linebuffer,dmon->levelout[1],"P2");
 		debugdisplay(dmon->linebuffer,6);
-		snprintf(dmon->linebuffer,51,"DTXT: %s",dmon->debugtext);
+		if(CALIBRATIONMODE)
+			snprintf(dmon->linebuffer,51,"ADC CAL: Range, One Ch., All Ch., Diff");
+		else snprintf(dmon->linebuffer,51,"DTXT: %s",dmon->debugtext);
 		debugdisplay(dmon->linebuffer,7);
-		snprintf(dmon->linebuffer,51,"DVAR: %d, %d, %d, %d, %d, %d",
-				  dmon->debugvars[0],dmon->debugvars[1],dmon->debugvars[2],dmon->debugvars[3],dmon->debugvars[4],dmon->debugvars[5]);
+		snprintf(dmon->linebuffer,51,"DVAR: %ld, %ld, %ld, %ld",
+		  dmon->debugvars[0],dmon->debugvars[1],
+		  dmon->debugvars[2],dmon->debugvars[3]);
+
 		debugdisplay(dmon->linebuffer,8);
 	}
 	else
 	{
-		snprintf(dmon->linebuffer,51,"DTXT: %s",dmon->debugtext);
+		if(CALIBRATIONMODE)
+			snprintf(dmon->linebuffer,51,"ADC CAL: Range, One Ch., All Ch., Diff");
+		else snprintf(dmon->linebuffer,51,"DTXT: %s",dmon->debugtext);
 		debugdisplay(dmon->linebuffer,4);
-		snprintf(dmon->linebuffer,51,"DVAR: %d, %d, %d, %d",
-			  dmon->debugvars[0],dmon->debugvars[1],
-			  dmon->debugvars[2],dmon->debugvars[3]);
+		snprintf(dmon->linebuffer,51,"DVAR: %ld,%ld, %ld, %ld",
+		  dmon->debugvars[0],dmon->debugvars[1],
+		  dmon->debugvars[2],dmon->debugvars[3]);
 		debugdisplay(dmon->linebuffer,5);
 	}
 
@@ -449,46 +796,55 @@ void debugDetectLevel(q15_t signal, uint8_t channel)
 	dmon->levelprobes[channel] = signal;
 }
 
-int8_t prevcalsignalstate = 0;
-uint16_t mincalsample = 65534;
-uint16_t maxcalsample = 0;
-uint16_t avgrange = 0;
-uint32_t rangesum = 0;
-uint32_t diffsum = 0;
-int16_t diffavg = 0;
-int avgcount = 0;
+void adccal_init()
+{
+	caldata = malloc(sizeof(caldata));
+	caldata->allchannelsum=0;
+	caldata->avgcount = 0;
+	caldata->avgrange = 0;
+	caldata->calsignalcurrlevel = mincalsignallevel;
+	caldata->calsignalstate = 1;
+	caldata->diffavg = 0;
+	caldata->diffsum = 0;
+	caldata->maxcalsample = 0;
+	caldata->mincalsample = 65000;
+	caldata->onechannelsum = 0;
+	caldata->prevcalsignalstate = 1;
+	caldata->rangesum = 0;
+}
+
 static void runcalibrationdisplay()
 {
 	// if the sawtooth generator change the direction from down ramp to up ramp
 	// (changes every 128 steps, 64 steps up and 64 steps down)
 	// the input might have a phase shift but it would always be a complete cycle
-	if((calsignalstate==1)&&(prevcalsignalstate==0))
+	if((caldata->calsignalstate==1)&&(caldata->prevcalsignalstate==0))
 	{
-		rangesum += (maxcalsample-mincalsample);	//sums for averaging
-		diffsum += allchannelsum-onechannelsum;		//difference between all and one channel
-		avgcount++;
-		if(avgcount==128)
+		caldata->rangesum += (caldata->maxcalsample-caldata->mincalsample);	//sums for averaging
+		caldata->diffsum += caldata->allchannelsum-caldata->onechannelsum;		//difference between all and one channel
+		caldata->avgcount++;
+		if(caldata->avgcount==128)
 		{
-			avgrange = rangesum >> 7;	//the average range should 128 if the i/o level is properly adjusted
-			rangesum = 0;
-			avgcount = 0;
-			diffavg = (int16_t) ( diffsum >> 7);
+			caldata->avgrange = caldata->rangesum >> 7;	//the average range should 128 if the i/o level is properly adjusted
+			caldata->rangesum = 0;
+			caldata->avgcount = 0;
+			caldata->diffavg = (int16_t) ( caldata->diffsum >> 7);
 			/*the average difference between all and one channel should be 896
 			 * when the all channel is produced by 15bit ADC and the one channel is produced by (12bit_ADC << 3)
 			 */
-			diffsum = 0;
+			caldata->diffsum = 0;
 		    if(USE_DEBUG_MONITOR)
 		    {
-		    	dmon->debugvars[0] = avgrange;
-		    	dmon->debugvars[1] = onechannelsum;
-				dmon->debugvars[2] = allchannelsum;
-				dmon->debugvars[3] = diffavg;
+		    	dmon->debugvars[0] = (int) caldata->avgrange;
+		    	dmon->debugvars[1] = (int) caldata->onechannelsum;
+				dmon->debugvars[2] = (int) caldata->allchannelsum;
+				dmon->debugvars[3] = (int) caldata->diffavg;
 		    }
 		}
 
 		//display avgrange on the 6-LED-bar, diffavg=128 for the center point
 		//activate 2-LEDs only for the center point
-	    int insignalindex = (avgrange>>3)-14;
+	    int insignalindex = (caldata->avgrange>>3)-14;
 	    if(insignalindex < 0) insignalindex = 0;
 	    if(insignalindex > 4) insignalindex = 4;
 	    for(int i = 0;i<5;i++)
@@ -502,7 +858,7 @@ static void runcalibrationdisplay()
 
 	    //display diffavg on the 10-LED-bar, diffavg=896 for the center point
 	    //activate 2-LEDs only for the center point
-	    insignalindex = ( diffavg >> 7 ) - 3;
+	    insignalindex = ( caldata->diffavg >> 7 ) - 3;
 		if(insignalindex < 0) insignalindex = 0;
 		if(insignalindex > 9) insignalindex = 8;
 		for(int i = 0;i<9;i++)
@@ -514,15 +870,17 @@ static void runcalibrationdisplay()
 				HAL_GPIO_WritePin((GPIO_TypeDef*)ledbarport[5],ledbarpin[5],i==insignalindex);
 		}
 
-		onechannelsum = 0;
-		allchannelsum = 0;
-		mincalsample = 65534;
-		maxcalsample = 0;
+		caldata->onechannelsum = 0;
+		caldata->allchannelsum = 0;
+		caldata->mincalsample = 65534;
+		caldata->maxcalsample = 0;
 	}
 
-	prevcalsignalstate = calsignalstate;
-	if(onechannelsample > maxcalsample) maxcalsample = onechannelsample;
-	if(onechannelsample < mincalsample) mincalsample = onechannelsample;
+	caldata->prevcalsignalstate = caldata->calsignalstate;
+	if(caldata->onechannelsample > caldata->maxcalsample)
+		caldata->maxcalsample = caldata->onechannelsample;
+	if(caldata->onechannelsample < caldata->mincalsample)
+		caldata->mincalsample = caldata->onechannelsample;
 
 }
 
@@ -764,7 +1122,7 @@ void rotscan()
 	rotscancount++;
 	if(rotscancount>9)
 	{
-		rotscancount = 0;
+		rotscancount = 1;
 		if(rotsw_sum>5) rotsw = 1; else rotsw = 0;
 		if(rotp0_sum>5) rotp0 = 1; else rotp0 = 0;
 		if(rotp1_sum>5) rotp1 = 1; else rotp1 = 0;
@@ -775,7 +1133,8 @@ void rotscan()
 }
 
 static uint8_t prevrotp0,prevrotsw;
-enum {rotencode_idle,rotencode_startwaittrigger,rotencode_waittrigger,rotencode_startrun,rotencode_run};
+enum {rotencode_idle,rotencode_startwaittrigger,rotencode_waittrigger,
+	rotencode_startrun,rotencode_run,rotencode_waitrelease};
 static uint8_t rotencode_state = rotencode_idle;
 static uint32_t rotencode_currtick = 0;
 static uint32_t rotencode_prevtick = 0;
@@ -783,11 +1142,14 @@ uint8_t rotwaitexit = 0;
 static int8_t* rotatedindex = 0;
 static int8_t rotatedindexmax = 0;
 static int8_t rotatetrigger = 0;
+static int8_t longpresstrigger = 0;
+static int8_t briefpresstrigger = 0;
 enum {rotateexit_notyet,rotateexit_click,rotateexit_expired,
 	rotateexit_hold,rotateexit_longpress};
 static int8_t rotateexit = rotateexit_notyet;
 static int rotateidle;
 static int rotateholdcounter;
+static int holdcounter;
 static int8_t rotate_editparam = 0;
 
 void rotencode()
@@ -800,14 +1162,38 @@ void rotencode()
 	if(rotencode_state == rotencode_startwaittrigger)
 	{
 		rotatetrigger = 0;
-		if(rotsw && rotp0)
+		longpresstrigger = 0;
+		briefpresstrigger = 0;
+		if(rotp0 && rotsw)
 			rotencode_state = rotencode_waittrigger;
 	}
 	else if(rotencode_state == rotencode_waittrigger)
 	{
-		if((rotp0 && (!prevrotp0))||(rotsw && (!prevrotsw)))
+		if(!rotsw)	//if pressed
+		{
+			rotencode_state = rotencode_waitrelease;
+			holdcounter = 0;
+		}
+		else if(rotp0 && (!prevrotp0))
 		{
 			rotatetrigger = 1;
+			rotencode_state = rotencode_idle;
+		}
+	}
+	else if(rotencode_state == rotencode_waitrelease)
+	{
+		if(!rotsw)	//if pressed
+		{
+			holdcounter++;
+			if(holdcounter>100)
+			{
+				longpresstrigger = 1;
+				rotencode_state = rotencode_idle;
+			}
+		}
+		else	//if released
+		{
+			briefpresstrigger = 1;
 			rotencode_state = rotencode_idle;
 		}
 	}
@@ -926,6 +1312,12 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	 TIM1->CNT = 0;
 	 adccounter++;
+	 if(cpucount > MAXPROCESSINGCOUNT) //CPU overload is detected on previous processing
+	 {
+		 cpucount = 0;
+		 cpuoverload = 1;
+		 return;
+	 }
 
 	 if(CALIBRATIONMODE)	//adc calibration mode
 	 {
@@ -936,10 +1328,10 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		 }
 
 		 //record the sum of both single and multi-channel
-		 onechannelsample = (((uint32_t)adcbuffer[8]) << 3);
-		 onechannelsum += onechannelsample;
-		 allchannelsample = temp;
-		 allchannelsum += allchannelsample;
+		 caldata->onechannelsample = (((uint32_t)adcbuffer[8]) << 3);
+		 caldata->onechannelsum += caldata->onechannelsample;
+		 caldata->allchannelsample = temp;
+		 caldata->allchannelsum += caldata->allchannelsample;
 
 		 //run calibration display
 		 runcalibrationdisplay();
@@ -964,31 +1356,36 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		 q15_t nodcsignal;
 		 dst_dcremover_process(dcremover,&insample,&nodcsignal);
 		 dst_leveldetector_process(leveldetector,&nodcsignal,&INPUTLEVEL);
-		 if(USE_LEVEL_MONITOR)
+		 if(USE_DEBUG_MONITOR)
 		 {
-			 dst_leveldetector_process(dmon->levelprobe1,&dmon->levelprobes[0],&dmon->levelout[0]);
-			 dst_leveldetector_process(dmon->levelprobe2,&dmon->levelprobes[1],&dmon->levelout[1]);
+			 if(USE_LEVEL_MONITOR)
+			 {
+				 dst_leveldetector_process(dmon->levelprobe1,&dmon->levelprobes[0],&dmon->levelout[0]);
+				 dst_leveldetector_process(dmon->levelprobe2,&dmon->levelprobes[1],&dmon->levelout[1]);
+			 }
 		 }
 
 		 q15_t noaliasing;
 		 antialiasing(&nodcsignal,&noaliasing);
 
-		 if(cpucount > MAXPROCESSINGCOUNT) //CPU overload is detected on previous processing
-		 {
-			 cpucount = 0;
-			 cpuoverload = 1;
-		 }
-		 else	////CPU overload is not detected on previous processing
+		 if(!tunermode)
 		 {
 			 //processing the audio sample
 			 deepstomp_process(&noaliasing,&outsample);
-
-			 //write the sample to the output
-			 temp = (int32_t) outsample + 32767; //convert outsample to dc signal
-			 TIM4->CCR1 = (0xff00 & temp)>>8;
-			 TIM2->CCR2 = 0xff & temp;
-			 cpucount = TIM1->CNT;
 		 }
+		 else
+		 {
+			tuner_fillnotebins(&noaliasing);
+			if(!tuner->audiomute)
+				outsample = noaliasing;
+			else outsample = 0;
+		 }
+
+		 //write the sample to the output
+		 temp = (int32_t) outsample + 32767; //convert outsample to dc signal
+		 TIM4->CCR1 = (0xff00 & temp)>>8;
+		 TIM2->CCR2 = 0xff & temp;
+		 cpucount = TIM1->CNT;
 	 }
 
 }
@@ -997,6 +1394,13 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	 TIM1->CNT = 0;
 	 adccounter++;
+	 if(cpucount > MAXPROCESSINGCOUNT) //CPU overload is detected on previous processing
+	 {
+		 cpucount = 0;
+		 cpuoverload = 1;
+		 return;
+	 }
+
 	 if(CALIBRATIONMODE)	//adc calibration mode
 	 {
 		 int32_t temp=0;
@@ -1006,10 +1410,10 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 		 }
 
 		 //record the sum of both single and multi-channel
-		 onechannelsample = (((uint32_t)adcbuffer[0]) << 3);
-		 onechannelsum += onechannelsample;
-		 allchannelsample = temp;
-		 allchannelsum += allchannelsample;
+		 caldata->onechannelsample = (((uint32_t)adcbuffer[0]) << 3);
+		 caldata->onechannelsum += caldata->onechannelsample;
+		 caldata->allchannelsample = temp;
+		 caldata->allchannelsum += caldata->allchannelsample;
 
 		 //run calibration display
 		 runcalibrationdisplay();
@@ -1043,22 +1447,24 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 		 q15_t noaliasing;
 		 antialiasing(&nodcsignal,&noaliasing);
 
-		 if(cpucount > MAXPROCESSINGCOUNT) //CPU overload is detected on previous processing
-		 {
-			 cpucount = 0;
-			 cpuoverload = 1;
-		 }
-		 else	////CPU overload is not detected on previous processing
+		 if(!tunermode)
 		 {
 			 //processing the audio sample
 			 deepstomp_process(&noaliasing,&outsample);
-
-			 //write the sample to the output
-			 temp = (int32_t) outsample + 32767; //convert outsample to dc signal
-			 TIM4->CCR1 = (0xff00 & temp)>>8;
-			 TIM2->CCR2 = 0xff & temp;
-			 cpucount = TIM1->CNT;
 		 }
+		 else
+		 {
+			tuner_fillnotebins(&noaliasing);
+			if(!tuner->audiomute)
+				outsample = noaliasing;
+			else outsample = 0;
+		 }
+
+		 //write the sample to the output
+		 temp = (int32_t) outsample + 32767; //convert outsample to dc signal
+		 TIM4->CCR1 = (0xff00 & temp)>>8;
+		 TIM2->CCR2 = 0xff & temp;
+		 cpucount = TIM1->CNT;
 	 }
 }
 
@@ -1149,8 +1555,12 @@ void calibratepwm()
 }
 
 uint8_t barstate[10];
-enum {barchannel_input,barchannel_param,barchannel_presettostore,barchannel_button};
+enum {barchannel_input,barchannel_param,barchannel_presettostore,barchannel_button,
+	barchannel_tuner};
 uint8_t bardisplaychannel = barchannel_input;
+
+uint8_t const semitonemainled[] = {0,0,1,1,2,3,3,4,4,5,5,6};
+uint8_t const semitoneauxled[] = {0,1,1,2,2,3,4,4,5,5,6,6};
 
 void displaybar(int8_t level, uint8_t levelcount, uint8_t type)
 {
@@ -1244,29 +1654,50 @@ void displaybar(int8_t level, uint8_t levelcount, uint8_t type)
 			}
 		}
 	}
-	else	//levelcount 20-32, any type will be displayed in dot mode
+	else	//levelcount > 20
 	{
-		uint8_t quarterlevel = level/4;
-		uint8_t remainder = level%4;
-		for(int i=0;i<10;i++)
+		if(type==dsdisplaytype_semitones)
 		{
-			if(i==quarterlevel)
+			//truncate the possible level violation
+			if(level>35) level = 35;
+
+			//LED0, LED1, LED2, LED3, LED4, LED5, LED6 = C D E F G A B
+			//= NOTE0, NOTE2, NOTE4, NOTE5, NOTE7, NOTE9, NOTE11
+			uint8_t note = level%12;
+
+			//LED7, LED8, LED9 = OCTAVE0, OCTAVE1, OCTAVE2
+			uint8_t octave = level/12;
+
+			for(int i=0; i<10;i++)
+				barstate[i] = 0;
+			barstate[semitonemainled[note]]=2;
+			barstate[semitoneauxled[note]]=2;
+			barstate[7+octave]=1;
+		}
+		else	//all other types will br displayed as dot and blinking dot combination
+		{
+			uint8_t quarterlevel = level/4;
+			uint8_t remainder = level%4;
+			for(int i=0;i<10;i++)
 			{
-				if((remainder==0||(remainder==1)||remainder==2))
-					barstate[i]=2;
-				else if(remainder==3)
-					barstate[i]=1;
+				if(i==quarterlevel)
+				{
+					if((remainder==0||(remainder==1)||remainder==2))
+						barstate[i]=2;
+					else if(remainder==3)
+						barstate[i]=1;
+					else barstate[i]=0;
+				}
+				else if(i==(quarterlevel+1))
+				{
+					if((remainder==2)||(remainder==3))
+						barstate[i]=2;
+					else if(remainder==1)
+						barstate[i]=1;
+					else barstate[i]=0;
+				}
 				else barstate[i]=0;
 			}
-			else if(i==(quarterlevel+1))
-			{
-				if((remainder==2)||(remainder==3))
-					barstate[i]=2;
-				else if(remainder==1)
-					barstate[i]=1;
-				else barstate[i]=0;
-			}
-			else barstate[i]=0;
 		}
 	}
 }
@@ -1306,6 +1737,10 @@ void animatebar()
 	  {
 		  //?
 	  }
+	  else if(bardisplaychannel == barchannel_tuner)
+	  {
+		  displaybar(tuner->detectednote, 36 ,dsdisplaytype_semitones);
+	  }
 
 	  for(int i=0;i<10;i++)
 	  {
@@ -1325,9 +1760,6 @@ void animatebar()
 		  animatebar_state = 0;
 	  else animatebar_state = 1;
 }
-
-//led indicator states buffer
-uint8_t ledindibuttonstate[] = {0,0,0,0,0,0};	//when activated by toggle or radio button
 
 uint8_t animateindi_state = 0;
 uint32_t animateindi_prevtick = 0;
@@ -1435,7 +1867,7 @@ void on_editexit()
 
 		dowrite = 1;
 	}
-	//if its a long press on params controls or module selector (not preset)
+	//if exit status is to store the active setting to the preset
 	//then save all module setting to the current preset
 	if(((dstinterface*)MAINMODULE)->multimode)
 	{
@@ -1457,6 +1889,9 @@ void on_editexit()
 				}
 			}
 
+			//change the last accessed preset to the stored preset
+			hmm->preset.value = presettostore;
+
 			dowrite=1;
 		}
 
@@ -1477,6 +1912,8 @@ void on_editexit()
 					hsm->params[p].onchange((dsthandle) hsm, DEFAULTPRESET[presettostore][i][p]);
 				}
 			}
+			//change the last accessed preset to the restored preset
+			hmm->preset.value = presettostore;
 			dowrite=1;
 		}
 	}
@@ -1486,7 +1923,8 @@ void on_editexit()
 
 //parameters edit menu
 enum {menustate_start,menustate_waittrigger, menustate_rotateparamselect,
-		menustate_editparamvalue,menustate_selectpresettostore};
+		menustate_editparamvalue,menustate_selectpresettostore,
+		menustate_runtunner};
 uint8_t menustate = menustate_start;
 uint32_t menu_currtick = 0;
 uint32_t menu_prevtick = 0;
@@ -1502,6 +1940,8 @@ void menu()
 		indishowbutton();
 		bardisplaychannel = barchannel_input;
 		rotatetrigger = 0;
+		longpresstrigger = 0;
+		briefpresstrigger = 0;
 		rotencode_state = rotencode_startwaittrigger;
 		menustate=menustate_waittrigger;
 		rotate_editparam = 0;
@@ -1517,6 +1957,64 @@ void menu()
 			rotateexit = rotateexit_notyet;
 			menustate = menustate_rotateparamselect;
 		}
+		else if(longpresstrigger)
+		{
+			//activate the tuner mode
+			tunermode = 1;
+			tuner->run_state = tuner_runstate_start;
+
+			//menustate = runtunner
+			menustate = menustate_runtunner;
+			longpresstrigger = 0;
+			briefpresstrigger = 0;
+			rotatetrigger = 0;
+			rotencode_state = rotencode_startwaittrigger;
+
+			indiblinktype = blinknone;
+			bardisplaychannel = barchannel_tuner;
+
+		}
+		else if(briefpresstrigger) //briefpresstrigger
+		{
+			menustate=menustate_start;
+		}
+	}
+	else if(menustate==menustate_runtunner)
+	{
+		if(longpresstrigger)
+		{
+			//deactivate tunner mode
+			tunermode = 0;
+
+			for(int i=0;i<6;i++)
+				ledindibuttonstate[i]=0;
+			menustate=menustate_start;
+
+		}
+		else if(briefpresstrigger)
+		{
+			//toggle tunner bypass mode
+			//{}
+			briefpresstrigger = 0;
+			rotencode_state = rotencode_startwaittrigger;
+			if(tuner->audiomute)
+			{
+				tuner->audiomute = 0;
+				tuner->detectednote = 24;
+			}
+			else
+			{
+				tuner->audiomute = 1;
+				tuner->detectednote = 12;
+			}
+		}
+		else if(rotatetrigger)
+		{
+			//do nothing, restart waiting trigger
+			rotatetrigger = 0;
+			rotencode_state = rotencode_startwaittrigger;
+		}
+
 	}
 	else if(menustate==menustate_rotateparamselect)
 	{
@@ -1663,23 +2161,23 @@ static int8_t multieffectmodulechange(uint32_t handle, int8_t newvalue)
 
 static uint16_t generatecalsignal()
 {
-	if(calsignalstate)
+	if(caldata->calsignalstate)
 	{
-		calsignalcurrlevel += calsignalstep;
-		if(calsignalcurrlevel >= maxcalsignallevel)
+		caldata->calsignalcurrlevel += calsignalstep;
+		if(caldata->calsignalcurrlevel >= maxcalsignallevel)
 		{
-			calsignalstate = 0;
+			caldata->calsignalstate = 0;
 		}
 	}
 	else
 	{
-		calsignalcurrlevel -= calsignalstep;
-		if(calsignalcurrlevel <= mincalsignallevel)
+		caldata->calsignalcurrlevel -= calsignalstep;
+		if(caldata->calsignalcurrlevel <= mincalsignallevel)
 		{
-			calsignalstate = 1;
+			caldata->calsignalstate = 1;
 		}
 	}
-	return calsignalcurrlevel;
+	return caldata->calsignalcurrlevel;
 }
 
 /* USER CODE END 0 */
@@ -1797,103 +2295,108 @@ int main(void)
 		errorhalt(ERR_MODULE_SETUP);
 	}
 
-	//load params and preset data from flash memory storage
-	loadfromstorage();
-
-	//configure the core's user interface
-	if(((dstinterface*)MAINMODULE)->multimode)	//if a multi-effect mode
+	//Detect if the rotary switch is pressed and held at power-on
+	if(readrotsw())
 	{
-		dstmultimodule* h= (dstmultimodule*) MAINMODULE;
+	  CALIBRATIONMODE = 0;
+	  //load params and preset data from flash memory storage
+	  	loadfromstorage();
 
-		//assign the PRESETBUFFER pointer with the allocated storage, and initialize to default if not set
-		PRESETBUFFER = (preset*) storagebuffer->presetbuffer;
-		for(int p=0; p<h->preset.stepcount;p++)
-		{
-			for(int m=0;m<h->module.stepcount;m++)
-			{
-				for(int par=0; par < h->modulehandles[m]->interface.paramcount;par++)
-				{
-					if(par>3)	//manage only the first 4 parameters
-						break;
-					if(PRESETBUFFER->preset[p].module[m].control[par] < 0)	//not set (after mass erase on firmware programming)
-						PRESETBUFFER->preset[p].module[m].control[par] = DEFAULTPRESET[p][m][par];
-				}
-			}
-		}
+	  	//configure the core's user interface
+	  	if(((dstinterface*)MAINMODULE)->multimode)	//if a multi-effect mode
+	  	{
+	  		dstmultimodule* h= (dstmultimodule*) MAINMODULE;
 
-		//setup last active preset[19]
-		for(int m=0;m<h->module.stepcount;m++)
-		{
-			for(int par=0; par < h->modulehandles[m]->interface.paramcount;par++)
-			{
-				if(par>3)	//manage only the first 4 parameters
-					break;
-				if(PRESETBUFFER->preset[19].module[m].control[par] < 0)	//not set (after mass erase on firmware programming)
-					PRESETBUFFER->preset[19].module[m].control[par] = DEFAULTPRESET[19][m][par];
-			}
-		}
+	  		//assign the PRESETBUFFER pointer with the allocated storage, and initialize to default if not set
+	  		PRESETBUFFER = (preset*) storagebuffer->presetbuffer;
+	  		for(int p=0; p<h->preset.stepcount;p++)
+	  		{
+	  			for(int m=0;m<h->module.stepcount;m++)
+	  			{
+	  				for(int par=0; par < h->modulehandles[m]->interface.paramcount;par++)
+	  				{
+	  					if(par>3)	//manage only the first 4 parameters
+	  						break;
+	  					if(PRESETBUFFER->preset[p].module[m].control[par] < 0)	//not set (after mass erase on firmware programming)
+	  						PRESETBUFFER->preset[p].module[m].control[par] = DEFAULTPRESET[p][m][par];
+	  				}
+	  			}
+	  		}
 
-		//module and preset control setup
-		h->module.onchange = multieffectmodulechange;
-		h->preset.onchange = multieffectpresetchange;
-		PARAMS[4] = &(h->module);
-		PARAMS[5] = &(h->preset);
-		//set the active module and preset from the last saved states
-		int preset = storagebuffer->params[5];
-		int module = storagebuffer->params[4];
-		if(storagecounter < 1)
-		{
-			preset = 0;
-			module = 0;
-		}
-		h->module.onchange((dsthandle)h,module);
+	  		//setup last active preset[19]
+	  		for(int m=0;m<h->module.stepcount;m++)
+	  		{
+	  			for(int par=0; par < h->modulehandles[m]->interface.paramcount;par++)
+	  			{
+	  				if(par>3)	//manage only the first 4 parameters
+	  					break;
+	  				if(PRESETBUFFER->preset[19].module[m].control[par] < 0)	//not set (after mass erase on firmware programming)
+	  					PRESETBUFFER->preset[19].module[m].control[par] = DEFAULTPRESET[19][m][par];
+	  			}
+	  		}
 
-		//if not the first use (after flash erase on the first firmware upload)
-		if(storagecounter > 0)
-		{
-			h->preset.value = preset;	//set the preset without actually setting up any modules
-			//load the module with the last active setting (preset[19]) which could have
-			//the same or different  values with the last selected preset
-			for(int i=0; i< h->module.stepcount; i++)
-			{
-				dstsinglemodule* hsm = (dstsinglemodule*) h->modulehandles[i];
-				//load all parameter from the presetbuffer
-				for(int p = 0; p <hsm->interface.paramcount; p++)
-				{
-					if(p>3)
-						break;
-					int8_t data = PRESETBUFFER->preset[19].module[i].control[p];
-					hsm->params[p].onchange((dsthandle)hsm,data);
-				}
-			}
-		}
-		else
-		{
-			h->preset.onchange((dsthandle)h,preset);
-		}
+	  		//module and preset control setup
+	  		h->module.onchange = multieffectmodulechange;
+	  		h->preset.onchange = multieffectpresetchange;
+	  		PARAMS[4] = &(h->module);
+	  		PARAMS[5] = &(h->preset);
+	  		//set the active module and preset from the last saved states
+	  		int preset = storagebuffer->params[5];
+	  		int module = storagebuffer->params[4];
+	  		if(storagecounter < 1)
+	  		{
+	  			preset = 0;
+	  			module = 0;
+	  		}
+	  		h->module.onchange((dsthandle)h,module);
+
+	  		//if not the first use (after flash erase on the first firmware upload)
+	  		if(storagecounter > 0)
+	  		{
+	  			h->preset.value = preset;	//set the preset without actually setting up any modules
+	  			//load the module with the last active setting (preset[19]) which could have
+	  			//the same or different  values with the last selected preset
+	  			for(int i=0; i< h->module.stepcount; i++)
+	  			{
+	  				dstsinglemodule* hsm = (dstsinglemodule*) h->modulehandles[i];
+	  				//load all parameter from the presetbuffer
+	  				for(int p = 0; p <hsm->interface.paramcount; p++)
+	  				{
+	  					if(p>3)
+	  						break;
+	  					int8_t data = PRESETBUFFER->preset[19].module[i].control[p];
+	  					hsm->params[p].onchange((dsthandle)hsm,data);
+	  				}
+	  			}
+	  		}
+	  		else
+	  		{
+	  			h->preset.onchange((dsthandle)h,preset);
+	  		}
+	  	}
+	  	else	//single effect mode
+	  	{
+	  		dstsinglemodule* h = (dstsinglemodule*) MAINMODULE;
+	  		int8_t* paramptr = storagebuffer->params;
+
+	  		for(int p=0; p<6 ; p++)
+	  		{
+	  			if(p < h->interface.paramcount)
+	  			{
+	  				PARAMS[p] = &(h->params[p]);
+	  				//if not the first run (flash erase on firmware upload)
+	  				//then load the param with the last saved value from storage
+	  				if(storagecounter > 0)
+	  					PARAMS[p]->onchange((dsthandle)h,paramptr[p]);
+	  			}
+	  			else PARAMS[p] = &paramdump;
+	  		}
+	  	}
 	}
-	else	//single effect mode
+	else
 	{
-		dstsinglemodule* h = (dstsinglemodule*) MAINMODULE;
-		int8_t* paramptr = storagebuffer->params;
-
-		for(int p=0; p<6 ; p++)
-		{
-			if(p < h->interface.paramcount)
-			{
-				PARAMS[p] = &(h->params[p]);
-				//if not the first run (flash erase on firmware upload)
-				//then load the param with the last saved value from storage
-				if(storagecounter > 0)
-					PARAMS[p]->onchange((dsthandle)h,paramptr[p]);
-			}
-			else PARAMS[p] = &paramdump;
-		}
+		CALIBRATIONMODE = 1;
 	}
-
-
-	//start timer 1: cpu cycle counter
-	HAL_TIM_Base_Start(&htim1);
 
 	//initialize debug monitor
 	if(USE_DEBUG_MONITOR)
@@ -1902,6 +2405,16 @@ int main(void)
 		if(res)
 			errorblink(res);
 	}
+
+	//calibration initialization
+	if(CALIBRATIONMODE)
+		adccal_init();
+
+	//initialize instrument tuner
+	tuner_init();
+
+	//start timer 1: cpu cycle counter
+	HAL_TIM_Base_Start(&htim1);
 
 	//START AUDIO ADC
 	TIM3->ARR = 1632;	//44.1kHz sampling rate
@@ -1915,16 +2428,14 @@ int main(void)
 
 	//if rotary switch id pressed while powering-up
 	//then enter calibration operation for the ADC
-	if(readrotsw()==0)
+	if(CALIBRATIONMODE)
 	{
-		//setup the calibration data
-		CALIBRATIONMODE = 1;
 		while(1)
 		{
 			if(USE_DEBUG_MONITOR)
-			  {
-				  debugmonitor_run();
-			  }
+			{
+				debugmonitor_run();
+			}
 		}
 	}
 	else //enter normal operation mode
@@ -1937,6 +2448,8 @@ int main(void)
 			  rotencode();
 			  indiblink();
 			  runstoragewrite();
+			  if(tunermode)
+				  tuner_run();
 			  if(USE_DEBUG_MONITOR)
 			  {
 				  debugmonitor_run();
