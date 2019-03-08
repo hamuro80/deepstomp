@@ -72,6 +72,10 @@ IMPLEMENTED EFFECT MODULES
 - Distortion, featured with overdrive mode, fuzz mode, and hi-lo tone control
 - Delay, featured with time, feedback, and balance control
 
+SOFTWARE FUTURE WORKS
+- Implement multi-modal mode
+- Implement expression pedal extension through serial port with MIDI protocol
+
 CHANGE NOTES
 
 Version 1.4
