@@ -28,7 +28,7 @@ LICENSE
 
 HARDWARE FEATURES
 - Pluggable Blue-Pill-Compatible CPU/Core board: ARM Cortex M3,
-72MHz clock speed, 1 MB RAM, 64KB flash eprom
+72MHz clock speed, 20 kB RAM, 64KB flash eprom
 - mono input and output
 - 44.1 kHz sampling rate
 - 16-bit output using cascaded double 8-bit PWM with auto-calibration 
@@ -57,15 +57,10 @@ SOFTWARE FEATURES
 
 CURRENTLY IMPLEMENTED CORE FUNCTION
 - Audio input-output
+- Guitar (or general musical instrument) tuner
 - Parameter control and preset management for single- and multi-effect modes
 - Automatic calibration for 16-bit PWM output
 - Serial debugging display to monitor some internal parameters and signal probes
-
-CORE FUNCTION IN PROGRESS
-- Manual ADC calibration operation mode
-
-CORE FUNCTION FUTURE OWRKS
-- Guitar tunner
 
 IMPLEMENTED EFFECT MODULES
 - Expansor, an integrated noise gate expander and compressor 
