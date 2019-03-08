@@ -80,7 +80,7 @@ Version 1.4
 - Added user manual at https://www.deepstomp.com/deepstomps-user-manual/
 
 Version 1.3
-- Skipped
+- Added CPU overload detection and indication
 
 Version 1.2
 - Added manual ADC calibration operation when device is switched on while the rotary switch is pressed and hold
