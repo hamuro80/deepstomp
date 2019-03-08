@@ -40,12 +40,13 @@ HARDWARE FEATURES
 - Rotary encoder with click-push button to access all operation menus
 
 HARDWARE FUTURE WORKS
-- designing and testing power-on silencer circuit to mute the 
-	automatic calibration noise on power switching-on.
+- Adding output buffer after level control for better output noise-resistance
 
 SOFTWARE FEATURES
 - True real-time, buffered only 1 sample (1/44100 seconds) for precessing
 	while doing input and output conversion
+- Support guitar (or general musical instrument) tuner 
+	with +-(1/12) semitone precision (+- 0.45% frequency deviation)
 - Support single-effect mode with 6 controllable parameters
 - Support multi-effect mode (max 10 effect modules)
 - Support 19 custom programmable presets which can be reset to default 
@@ -60,6 +61,7 @@ CURRENTLY IMPLEMENTED CORE FUNCTION
 - Guitar (or general musical instrument) tuner
 - Parameter control and preset management for single- and multi-effect modes
 - Automatic calibration for 16-bit PWM output
+- Calibration operation mode for calibrating the ADC expansion circuitry
 - Serial debugging display to monitor some internal parameters and signal probes
 
 IMPLEMENTED EFFECT MODULES
