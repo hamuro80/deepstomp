@@ -1,18 +1,23 @@
 DEEPSTOMP MAIN BOARD
 Version: 1.2
 
-The standard features of this main bord is:
-- Power supply input: 9V DC (positive at the outer circle/tube and negative/ground at the center pin)
-- One LED for power indicator
-- One LED for bypass-state check
-- Six LEDs for control/params/module/preset indicator
-- Ten LEDs for indicator bar to show parameter values
-- One power switch to turn on/off and power-on-reset the device
-- One prog/run switch to select programming or running operation when switched-on
-- One rotary encoder with a click-push-button for user interface
-- One input level potentiometer to ensure optimal input conversion
-- One output level potentiometer to ensure the balance between processed output and bypassed input volume.
-- One 40 pins female header socket for plugging the deepstomp CPU board
+The standard interface of Deepstomp's main bord is:
+1. 9-12V DC power supply plug port
+2. On/off power switch
+3. Hi/lo input gain range selector switch
+4. Program/run mode selector switch
+5. Rotary knob with push click
+6. Input level control knob
+7. Output level control knob
+8. Mono input plug port
+9. Mono output plug port
+10. Serial communication port (3.3V TTL level)
+11. True bypass stomp switch
+12. ADC calibration trimmer
+13. Power indicator LED
+14. Bypass (CHECK) indicator LED
+15. Control indicator LED bar (6 LEDs)
+16. Signal indicator LED bar (10 LEDs)
 
 BILL OF MATERIALS
 Resistors    
@@ -61,6 +66,7 @@ Switches
 Connectors
 	IN ........................... 1 x Mono  audio plug port
 	OUT ........................... 1 x Mono audio plug port
+	Serial Communication ...... 1 x stereo plug (3.5mm) port
 	POWER .......................... 1 x  DC power plug port
 	CPU/Core .....  Blue-pill board compatible female header 
 
