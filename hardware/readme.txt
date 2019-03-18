@@ -55,7 +55,8 @@ Integrated Circuits (IC)
 	U5,6 ........................................... 2 x 741
 
 Switches
-	S1,2,3 ........................................ 3 x SPDT Toggle Switch
+	S1,2,3 .......................... 3 x SPDT Toggle Switch
+	S4 ..................... Rotary Encoder with Push Button
 	CHECK  ........................... 1 x 3PDT Stomp Switch 
 Connectors
 	IN ........................... 1 x Mono  audio plug port
