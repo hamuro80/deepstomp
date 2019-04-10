@@ -52,6 +52,8 @@ typedef struct
 	q15_t expansionrange;
 	q15_t correctiongain;
 	q31_t filteredlevel;
+	int8_t attack;
+	int8_t release;
 	q31_t xv[2];
 	q31_t yv[2];
 } expansor;

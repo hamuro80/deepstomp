@@ -97,12 +97,6 @@ enum {editexit_expired,editexit_click,editexit_longpress,
 #define ERR_MODULE_SETUP		6
 #define ERR_DEBUGMON_INIT		7
 
-//PWM
-#define LO_PWM_Pin GPIO_PIN_3
-#define LO_PWM_GPIO_Port GPIOB
-#define HI_PWM_Pin GPIO_PIN_6
-#define HI_PWM_GPIO_Port GPIOB
-
 //ROTARY
 #define ROT_SW_Pin GPIO_PIN_1
 #define ROT_SW_GPIO_Port GPIOB
@@ -153,7 +147,8 @@ enum {editexit_expired,editexit_click,editexit_longpress,
 //maximum CPU clock count for single sample processing to indicate CPU overload
 #define MAXPROCESSINGCOUNT	1450
 //CPU OVERLOAD DETECTOR
-uint8_t cpuoverload = 0;
+static uint8_t cpuoverload = 0;
+static uint8_t cpuoverloadcounter = 0;
 
 //ADC calibration
 uint8_t CALIBRATIONMODE = 0;
@@ -1718,10 +1713,20 @@ void animatebar()
 	  {
 		  if(cpuoverload)
 		  {
-			  displaybar(2,10,dsdisplaytype_blinkbar);
+			  cpuoverload = 0;
+			  cpuoverloadcounter = 10;
+		  }
+
+		  if(cpuoverloadcounter)
+		  {
+			  cpuoverloadcounter--;
+			  displaybar(9,10,dsdisplaytype_blinkdot);
 			  cpuoverload = 0;
 		  }
-		  else displaybar(INPUTLEVEL/3276,10,dsdisplaytype_bar);
+		  else
+		  {
+			  displaybar(INPUTLEVEL/3276,10,dsdisplaytype_bar);
+		  }
 	  }
 	  else if(bardisplaychannel == barchannel_param)
 	  {
@@ -1945,6 +1950,8 @@ void menu()
 		rotencode_state = rotencode_startwaittrigger;
 		menustate=menustate_waittrigger;
 		rotate_editparam = 0;
+		cpuoverload = 0;
+		cpuoverloadcounter = 0;
 	}
 	else if(menustate==menustate_waittrigger)
 	{
@@ -2951,3 +2958,6 @@ void assert_failed(uint8_t* file, uint32_t line)
   */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
+/* USER CODE BEGIN Copyright */
+/************************ (C) COPYRIGHT DEEPTRONIC.COM *****END OF FILE****/
+/* USER CODE END Copyright */

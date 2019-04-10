@@ -79,6 +79,10 @@ SOFTWARE FUTURE WORKS
 
 CHANGE NOTES
 
+Version 1.5
+- Changed CPU overload indication and dtection method, now the overload is	indicated by the blinking of the last 
+ LED of the indicator bar in the normal operation state (where it should normally show the signal level)
+
 Version 1.4
 - Hardware improvement from v1.1. to v1.2
 - Added semitones display type for module's controllable parameter

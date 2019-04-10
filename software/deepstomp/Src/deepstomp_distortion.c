@@ -166,7 +166,7 @@ static void process(dsthandle handle, q15_t* input,q15_t* output)
 static int8_t setdistortion(dsthandle handle,int8_t newvalue)
 {
 	distortion* h = (distortion*) handle;
-	h->pregain =2*newvalue+1;	//1,3,5,7,..
+	h->pregain =(newvalue<<2)+1;	//1,5,9,17,..
 	h->postgain = 32/h->pregain;	//32,10,6,..
 	if(h->postgain<6)
 		h->postgain = 6;

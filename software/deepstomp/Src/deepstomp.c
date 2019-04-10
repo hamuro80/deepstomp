@@ -67,8 +67,8 @@ MODULETYPE module;
 //set up your module
 int deepstomp_modulesetup()
 {
-	//USE_DEBUG_MONITOR = 1;
-	//USE_LEVEL_MONITOR = 1;
+	USE_DEBUG_MONITOR = 1;
+	USE_LEVEL_MONITOR = 1;
 	int setupstatus = MODULESETUP(&module);
 	MAINMODULE = (dsthandle) &module;
 	return setupstatus;

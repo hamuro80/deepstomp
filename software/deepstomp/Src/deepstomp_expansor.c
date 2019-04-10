@@ -125,6 +125,7 @@ static int8_t setcompattack(dsthandle handle, int8_t newvalue)
 {
 	expansor* h = (expansor*) handle;
 	h->compattack.value = newvalue;
+	h->attack = (18-newvalue)<<1;
 	return newvalue;
 }
 
@@ -132,6 +133,7 @@ static int8_t setcomprelease(dsthandle handle, int8_t newvalue)
 {
 	expansor* h = (expansor*) handle;
 	h->comprelease.value = newvalue;
+	h->release = (18-newvalue)<<1;
 	return newvalue;
 }
 
@@ -184,14 +186,14 @@ static void process(dsthandle handle,q15_t* input,q15_t* output)
 		if(leveldrive > 0)
 		{
 			//drive the filteredlevel by attack control
-			leveldrive = (leveldrive*(h->compattack.value + 1))>>12;
+			leveldrive = (leveldrive*(h->attack + 1))>>12;
 			if(leveldrive<1) leveldrive = 1;
 			h->filteredlevel += leveldrive;
 		}
 		else if(leveldrive < 0)
 		{
 			//drive the filteredlevel by release control
-			leveldrive = (leveldrive*(h->comprelease.value + 1))>>12;
+			leveldrive = (leveldrive*(h->release + 1))>>12;
 			if(leveldrive > -1) leveldrive = -1;
 			h->filteredlevel += leveldrive;
 		}
@@ -250,14 +252,14 @@ int expansor_setup(expansor* handle)
 
 	//compression attack
 	handle->compattack.name = "COMP ATTACK";
-	handle->compattack.displaytype = displaytype_dot38;
-	handle->compattack.stepcount = 38;
+	handle->compattack.displaytype = displaytype_dot19;
+	handle->compattack.stepcount = 19;
 	handle->compattack.onchange = setcompattack;
 
 	//compression release
 	handle->comprelease.name = "COMP RELEASE";
-	handle->comprelease.displaytype = displaytype_dot38;
-	handle->comprelease.stepcount = 38;
+	handle->comprelease.displaytype = displaytype_dot19;
+	handle->comprelease.stepcount = 19;
 	handle->comprelease.onchange = setcomprelease;
 
 	//initialize the parameter values by calling its on-change callback
