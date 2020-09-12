@@ -88,7 +88,7 @@ Version 1.4
 - Added semitones display type for module's controllable parameter
 - Added guitar (or general musical instrument) tuner
 - Fixed last accessed module after storing or restoring the preset at any location
-- Added user manual at https://www.deepstomp.com/deepstomps-user-manual/
+- Added user manual at https://deepstomp.deepstronic.com/deepstomps-user-manual/
 
 Version 1.3
 - Added CPU overload detection and indication
